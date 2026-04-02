@@ -61,47 +61,79 @@ namespace RpgMod1
                 if (MilitaryDepotBehavior.TempBattleLoot == null)
                     MilitaryDepotBehavior.PrepareTempLoot();
 
-                // Берем текущее снаряжение (или дефолтное, если переопределения нет)
-                Equipment currentEquip = agentBuildData.AgentOverridenSpawnEquipment;
-                if (currentEquip == null)
-                    currentEquip = agentBuildData.AgentCharacter.FirstBattleEquipment;
+                string unitName = agentBuildData.AgentCharacter.Name.ToString();
 
-                if (currentEquip == null) return;
+                // 1. Находим "Рекрута" (1-й тир этой ветки)
+                CharacterObject firstTierCharacter = GetFirstTierCharacter(agentBuildData.AgentCharacter as CharacterObject);
+                if (firstTierCharacter == null) return; // Если не нашли шаблон, выходим
+                Equipment tier1Equip = firstTierCharacter.FirstBattleEquipment;
 
-                Equipment customEquip = new Equipment(currentEquip); // Явное копирование
-                bool isChanged = false;
+                // 2. Берем родное снаряжение текущего уровня юнита для сравнения
+                Equipment currentTierEquip = agentBuildData.AgentCharacter.FirstBattleEquipment;
 
-                // 1. БРОНЯ
-                for (EquipmentIndex i = EquipmentIndex.Head; i <= EquipmentIndex.Cape; i++)
+                Equipment customEquip = new Equipment(); // Создаем абсолютно новый набор
+
+                // --- ЦИКЛ ПО ВСЕМ СЛОТАМ (Броня и Оружие) ---
+                for (EquipmentIndex i = EquipmentIndex.Weapon0; i <= EquipmentIndex.Cape; i++)
                 {
-                    EquipmentElement bestArmor = MilitaryDepotBehavior.ExtractBestForSlot(i);
-                    if (!bestArmor.IsEmpty)
+                    EquipmentElement bestFromDepot = EquipmentElement.Invalid;
+
+                    // Проверяем, есть ли что-то в Обозе
+                    if (i <= EquipmentIndex.Weapon3)
+                        bestFromDepot = MilitaryDepotBehavior.ExtractBestWeaponForSlot(currentTierEquip[i], MilitaryDepotBehavior.TempBattleLoot);
+                    else
+                        bestFromDepot = MilitaryDepotBehavior.ExtractBestForSlot(i);
+
+                    // ЛОГИКА: Если в Обозе нашли что-то (оно по коду уже лучше текущего), берем это
+                    if (!bestFromDepot.IsEmpty)
                     {
-                        customEquip[i] = bestArmor;
-                        isChanged = true;
+                        customEquip[i] = bestFromDepot;
+                        InformationManager.DisplayMessage(new InformationMessage(
+                            $"{unitName}: Получено из Обоза -> {bestFromDepot.Item.Name}", new Color(0f, 1f, 0f)));
+                    }
+                    else
+                    {
+                        // ЕСЛИ НА СКЛАДЕ НЕТ: Принудительно ставим вещь 1-го тира
+                        customEquip[i] = tier1Equip[i];
                     }
                 }
 
-                // 2. ОРУЖИЕ (Слоты 0-3)
-                for (EquipmentIndex i = EquipmentIndex.Weapon0; i <= EquipmentIndex.Weapon3; i++)
+                // Применяем новый "сборный" комплект
+                agentBuildData.Equipment(customEquip);
+            }
+        }
+
+        // Вспомогательный метод для поиска корня ветки юнита (1 тир)
+        private static CharacterObject GetFirstTierCharacter(CharacterObject character)
+        {
+            if (character == null) return null;
+
+            CharacterObject current = character;
+            bool foundParent = true;
+
+            // Цикл поиска предка (идем вверх по дереву улучшений)
+            while (foundParent)
+            {
+                foundParent = false;
+                // Проверяем всех персонажей в игре, чтобы найти того, кто улучшается в "current"
+                foreach (CharacterObject candidate in CharacterObject.All)
                 {
-                    EquipmentElement currentItemElement = customEquip[i];
-                    if (!currentItemElement.IsEmpty)
+                    if (candidate.UpgradeTargets != null)
                     {
-                        EquipmentElement bestWeapon = MilitaryDepotBehavior.ExtractBestWeaponForSlot(currentItemElement, MilitaryDepotBehavior.TempBattleLoot);
-                        if (!bestWeapon.IsEmpty)
+                        for (int i = 0; i < candidate.UpgradeTargets.Length; i++)
                         {
-                            customEquip[i] = bestWeapon;
-                            isChanged = true;
+                            if (candidate.UpgradeTargets[i] == current)
+                            {
+                                current = candidate;
+                                foundParent = true;
+                                break;
+                            }
                         }
                     }
-                }
-
-                if (isChanged)
-                {
-                    agentBuildData.Equipment(customEquip);
+                    if (foundParent) break;
                 }
             }
+            return current;
         }
     }
 
