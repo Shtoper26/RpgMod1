@@ -1,51 +1,45 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using TaleWorlds.CampaignSystem;
+using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
-using TaleWorlds.Library;
 
 namespace RpgMod1
 {
     public static class MilitaryDepotCache
     {
-        // План привязан к конкретному CharacterObject, чтобы при спавне выдать вещь нужному типу юнита
-        // Используем Queue (очередь), чтобы выдавать по одному предмету из заранее подготовленного списка для каждого типа
-        private static Dictionary<CharacterObject, Queue<Equipment>> AssignmentPlan = new Dictionary<CharacterObject, Queue<Equipment>>();
+        // Кэш теперь: [Отряд] -> [Тип Юнита] -> [Очередь Экипировки]
+        private static Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>> GlobalPlan =
+            new Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>>();
 
-        public static void Clear()
+        public static void Clear() => GlobalPlan.Clear();
+
+        public static void CreateBattlePlan(MobileParty party, ItemRoster inventory)
         {
-            AssignmentPlan.Clear();
-        }
+            if (party == null || inventory == null || party.MemberRoster == null) return;
 
-        public static void CreateBattlePlan(ItemRoster depotInventory, TroopRoster memberRoster)
-        {
-            Clear();
-            if (depotInventory == null || memberRoster == null) return;
+            if (!GlobalPlan.ContainsKey(party))
+                GlobalPlan[party] = new Dictionary<CharacterObject, Queue<Equipment>>();
 
-            ItemRoster simRoster = new ItemRoster(depotInventory);
-            int issuedCount = 0; // Счетчик для итогового отчета
-
-            // 1. Собираем всех солдат
+            ItemRoster simRoster = new ItemRoster(inventory);
             List<CharacterObject> allTroops = new List<CharacterObject>();
-            for (int i = 0; i < memberRoster.Count; i++)
+
+            for (int i = 0; i < party.MemberRoster.Count; i++)
             {
-                var element = memberRoster.GetElementCopyAtIndex(i);
+                var element = party.MemberRoster.GetElementCopyAtIndex(i);
                 if (element.Character.IsHero) continue;
                 for (int n = 0; n < element.Number; n++) { allTroops.Add(element.Character); }
             }
 
-            // 2. Сортируем (Ветераны первые)
+            // Сортировка по тиру (6 -> 0)
             var sortedTroops = allTroops.OrderByDescending(t => t.Tier).ToList();
 
-            // 3. Распределяем
             foreach (var character in sortedTroops)
             {
                 CharacterObject firstTier = MilitaryDepotLogic.GetFirstTierCharacter(character);
                 Equipment finalEquip = new Equipment();
                 bool hasChanges = false;
-                string itemsLog = ""; // Строка для сбора названий выданных вещей
 
                 for (EquipmentIndex slot = EquipmentIndex.Weapon0; slot <= EquipmentIndex.Cape; slot++)
                 {
@@ -57,7 +51,6 @@ namespace RpgMod1
                     {
                         finalEquip[slot] = best;
                         hasChanges = true;
-                        itemsLog += (itemsLog == "" ? "" : ", ") + best.Item.Name.ToString();
                     }
                     else if (firstTier != null)
                     {
@@ -67,26 +60,22 @@ namespace RpgMod1
 
                 if (hasChanges)
                 {
-                    if (!AssignmentPlan.ContainsKey(character)) AssignmentPlan[character] = new Queue<Equipment>();
-                    AssignmentPlan[character].Enqueue(finalEquip);
-                    issuedCount++;
+                    if (!GlobalPlan[party].ContainsKey(character))
+                        GlobalPlan[party][character] = new Queue<Equipment>();
 
-                    // ВЫВОД ЛОГА: Теперь мы видим, что зарезервировано для конкретного типа юнита
-                    // Чтобы не спамить 500 строк, выводим только если выдано что-то ценное
-                    MilitaryDepotLogs.LogWeaponIssued(character.Name.ToString(), itemsLog);
+                    GlobalPlan[party][character].Enqueue(finalEquip);
                 }
             }
-
-            // Итоговое сообщение в чат
-            MilitaryDepotLogs.LogTransferComplete(issuedCount);
         }
 
-        // Метод для получения экипировки при спавне
-        public static Equipment GetPredefinedEquipment(CharacterObject character)
+        public static Equipment GetPredefinedEquipment(MobileParty party, CharacterObject character)
         {
-            if (AssignmentPlan.TryGetValue(character, out Queue<Equipment> queue) && queue.Count > 0)
+            if (party != null && GlobalPlan.TryGetValue(party, out var partyPlan))
             {
-                return queue.Dequeue();
+                if (partyPlan.TryGetValue(character, out Queue<Equipment> queue) && queue.Count > 0)
+                {
+                    return queue.Dequeue();
+                }
             }
             return null;
         }

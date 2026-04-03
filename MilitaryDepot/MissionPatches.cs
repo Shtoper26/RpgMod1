@@ -1,7 +1,14 @@
 ﻿using HarmonyLib;
+using System.Linq;
+using System.Reflection;
 using TaleWorlds.CampaignSystem;
+using TaleWorlds.CampaignSystem.AgentOrigins;
+using TaleWorlds.CampaignSystem.MapEvents;
+using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.Core;
+using TaleWorlds.Library;
 using TaleWorlds.MountAndBlade;
+
 
 namespace RpgMod1
 {
@@ -10,18 +17,27 @@ namespace RpgMod1
     {
         static void Prefix(AgentBuildData agentBuildData)
         {
-            // Проверяем, что это обычный солдат игрока
-            if (agentBuildData.AgentCharacter != null && agentBuildData.AgentTeam != null &&
-                agentBuildData.AgentTeam.IsPlayerTeam && !agentBuildData.AgentCharacter.IsHero)
+            if (agentBuildData.AgentCharacter != null && !agentBuildData.AgentCharacter.IsHero)
             {
-                CharacterObject character = agentBuildData.AgentCharacter as CharacterObject;
+                // Пытаемся достать PartyBase через интерфейс IAgentOriginBase
+                IAgentOriginBase origin = agentBuildData.AgentOrigin;
+                if (origin == null) return;
 
-                // Просто берем следующую зарезервированную экипировку для этого типа юнита
-                Equipment customEquip = MilitaryDepotCache.GetPredefinedEquipment(character);
+                // В Bannerlord почти все отряды в миссии — это PartyAgentOrigin или SimpleAgentOrigin
+                // Мы ищем тот, у которого есть свойство .Party
+                PropertyInfo partyProperty = origin.GetType().GetProperty("Party");
+                PartyBase partyBase = partyProperty?.GetValue(origin) as PartyBase;
 
-                if (customEquip != null)
+                if (partyBase != null && partyBase.MobileParty != null)
                 {
-                    agentBuildData.Equipment(customEquip);
+                    MobileParty mobileParty = partyBase.MobileParty;
+                    CharacterObject character = agentBuildData.AgentCharacter as CharacterObject;
+
+                    Equipment customEquip = MilitaryDepotCache.GetPredefinedEquipment(mobileParty, character);
+                    if (customEquip != null)
+                    {
+                        agentBuildData.Equipment(customEquip);
+                    }
                 }
             }
         }
@@ -30,15 +46,55 @@ namespace RpgMod1
     [HarmonyPatch(typeof(Mission), "AfterStart")]
     public class MissionStartPatch
     {
-        static void Postfix()
+        static void Postfix(Mission __instance)
         {
-            if (MilitaryDepotBehavior.DepotParty != null && TaleWorlds.CampaignSystem.Party.PartyBase.MainParty != null)
+            MilitaryDepotCache.Clear();
+            InformationManager.DisplayMessage(new InformationMessage("[Склад] Инициализация боя...", Color.FromUint(0xFFFFFF00)));
+
+            // 1. Пытаемся взять глобальное событие
+            MapEvent playerEvent = MapEvent.PlayerMapEvent;
+
+            // 2. Если глобального события нет, берем всех участников из самой миссии (для тестов и стычек)
+            if (playerEvent != null)
             {
-                // Формируем план распределения ПЕРЕД началом боя
-                MilitaryDepotCache.CreateBattlePlan(
-                    MilitaryDepotBehavior.DepotParty.ItemRoster,
-                    TaleWorlds.CampaignSystem.Party.PartyBase.MainParty.MemberRoster
-                );
+                foreach (PartyBase partyBase in playerEvent.InvolvedParties)
+                {
+                    ProcessParty(partyBase);
+                }
+            }
+            else
+            {
+                // Запасной вариант: берем лидера каждой команды в миссии
+                foreach (Team team in __instance.Teams)
+                {
+                    foreach (Agent agent in team.ActiveAgents)
+                    {
+                        if (agent.IsHero && agent.Origin is PartyAgentOrigin partyOrigin)
+                        {
+                            ProcessParty(partyOrigin.Party);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void ProcessParty(PartyBase partyBase)
+        {
+            if (partyBase == null || partyBase.MobileParty == null) return;
+            MobileParty mobileParty = partyBase.MobileParty;
+
+            if (mobileParty.IsMainParty)
+            {
+                if (MilitaryDepotBehavior.DepotParty != null)
+                {
+                    MilitaryDepotCache.CreateBattlePlan(mobileParty, MilitaryDepotBehavior.DepotParty.ItemRoster);
+                    InformationManager.DisplayMessage(new InformationMessage($"[Склад] План для Игрока создан.", Color.FromUint(0xFF00FF00)));
+                }
+            }
+            else
+            {
+                MilitaryDepotCache.CreateBattlePlan(mobileParty, mobileParty.ItemRoster);
+                InformationManager.DisplayMessage(new InformationMessage($"[Склад] План для {mobileParty.Name} создан.", Color.FromUint(0xFF00FF00)));
             }
         }
     }
