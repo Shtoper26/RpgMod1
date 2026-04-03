@@ -1,0 +1,17 @@
+1. MilitaryDepotBehavior.cs
+Роль: Создание склада, сохранение данных (SyncData) и регистрация сбора лута.
+
+2. MissionPatches.cs
+Роль: Harmony-патч для боя. Выдача оружия и логирование.
+
+3. MilitaryDepotLogic.cs
+Роль: Все математические расчеты, проверки типов и поиск тиров.
+
+4. MilitaryDepotActions.cs
+Роль: Манипуляции с инвентарем и кнопка L.
+
+5. MilitaryDepotLogs.cs
+Роль: Централизованный вывод сообщений.
+
+6. SubModule.cs
+Роль: Запуск и кнопки.
