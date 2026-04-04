@@ -5,6 +5,7 @@ using TaleWorlds.CampaignSystem.MapEvents;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
+using TaleWorlds.Library;
 
 namespace RpgMod1
 {
@@ -45,6 +46,12 @@ namespace RpgMod1
             // 3. Собираем список погибших с проигравшей стороны
             List<CharacterObject> casualties = new List<CharacterObject>();
 
+            // Временный лог что контролировать сбор лута ИИ 
+            if (mainWinner.MobileParty != null && mainWinner.MobileParty.IsLordParty)
+            {
+                InformationManager.DisplayMessage(new InformationMessage($"[Debug] Лорд {mainWinner.Name} собрал лут после боя."));
+            }
+
             // Перебираем все отряды на проигравшей стороне
             foreach (MapEventParty loserParty in mapEvent.PartiesOnSide(loserSide))
             {
@@ -69,7 +76,7 @@ namespace RpgMod1
             }
 
             // 4. Шанс выпадения предмета (20%)
-            float lootChance = 0.2f;
+            float lootChance = 0.5f;
 
             foreach (CharacterObject victim in casualties)
             {

@@ -12,6 +12,10 @@ namespace RpgMod1
         {
             base.OnSubModuleLoad();
             new Harmony("com.rpgmod.militarydepot").PatchAll();
+            base.OnSubModuleLoad();
+            // Создаем экземпляр Harmony с ID твоего мода
+            var harmony = new Harmony("com.rpgmod1.patch");
+            harmony.PatchAll(); // Это найдет наш файл HarmonyPatches.cs и применит его
         }
 
         protected override void OnGameStart(Game game, IGameStarter gameStarterObject)

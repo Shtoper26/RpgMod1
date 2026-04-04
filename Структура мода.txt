@@ -18,3 +18,5 @@
 
 7.MilitaryDepotCache.cs
 Роль: Таблица выдачи, кешируется выдача снаряжения.
+
+8.HarmonyPatches.cs
