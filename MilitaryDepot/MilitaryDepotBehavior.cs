@@ -16,10 +16,7 @@ namespace RpgMod1
 
         public override void RegisterEvents()
         {
-            CampaignEvents.MapEventEnded.AddNonSerializedListener(this, (MapEvent ev) => {
-                CollectLoot();
-                TempBattleLoot = null;
-            });
+            CampaignEvents.MapEventEnded.AddNonSerializedListener(this, OnMapEventEnded);
         }
 
         public override void SyncData(IDataStore dataStore)
@@ -27,19 +24,78 @@ namespace RpgMod1
             dataStore.SyncData<MobileParty>("_militaryDepotParty", ref DepotParty);
         }
 
-        public void CollectLoot()
+        private void OnMapEventEnded(MapEvent mapEvent)
         {
-            if (PartyBase.MainParty == null || DepotParty == null) return;
-            ItemRoster inv = PartyBase.MainParty.ItemRoster;
-            for (int i = inv.Count - 1; i >= 0; i--)
+            // Проверяем наличие события и склада
+            if (mapEvent == null || DepotParty == null) return;
+
+            // 1. В 1.3.x используем BattleSideEnum для сторон
+            BattleSideEnum winnerSide = mapEvent.WinningSide;
+
+            // Если победителя нет (побег или ничья) - выходим
+            if (winnerSide == BattleSideEnum.None) return;
+
+            // Определяем сторону проигравших
+            BattleSideEnum loserSide = (winnerSide == BattleSideEnum.Attacker) ? BattleSideEnum.Defender : BattleSideEnum.Attacker;
+
+            // 2. Находим лидера победившей стороны
+            PartyBase mainWinner = mapEvent.GetLeaderParty(winnerSide);
+            if (mainWinner == null) return;
+
+            // 3. Собираем список погибших с проигравшей стороны
+            List<CharacterObject> casualties = new List<CharacterObject>();
+
+            // Перебираем все отряды на проигравшей стороне
+            foreach (MapEventParty loserParty in mapEvent.PartiesOnSide(loserSide))
             {
-                ItemRosterElement el = inv[i];
-                if (el.EquipmentElement.Item != null && MilitaryDepotLogic.IsEquipment(el.EquipmentElement.Item))
+                PartyBase pBase = loserParty.Party;
+                if (pBase == null || pBase.MemberRoster == null) continue;
+
+                // Считаем потери: общее число минус здоровые
+                int lostCount = pBase.MemberRoster.TotalManCount - pBase.MemberRoster.TotalHealthyCount;
+
+                if (lostCount > 0 && pBase.MemberRoster.Count > 0)
                 {
-                    DepotParty.ItemRoster.AddToCounts(el.EquipmentElement, el.Amount);
-                    inv.Remove(el);
+                    for (int i = 0; i < lostCount; i++)
+                    {
+                        // Берем случайного юнита из тех, кто был в бою
+                        var element = pBase.MemberRoster.GetElementCopyAtIndex(MBRandom.RandomInt(pBase.MemberRoster.Count));
+                        if (element.Character != null && !element.Character.IsHero)
+                        {
+                            casualties.Add(element.Character);
+                        }
+                    }
                 }
             }
+
+            // 4. Шанс выпадения предмета (20%)
+            float lootChance = 0.2f;
+
+            foreach (CharacterObject victim in casualties)
+            {
+                if (victim.FirstBattleEquipment == null) continue;
+
+                for (EquipmentIndex slot = EquipmentIndex.Weapon0; slot <= EquipmentIndex.Cape; slot++)
+                {
+                    EquipmentElement item = victim.FirstBattleEquipment[slot];
+
+                    if (item.Item != null && MBRandom.RandomFloat < lootChance)
+                    {
+                        // Исправляем ошибку CS1061: проверяем игрока через MobileParty
+                        if (mainWinner == PartyBase.MainParty)
+                        {
+                            DepotParty.ItemRoster.AddToCounts(item.Item, 1);
+                        }
+                        // Если победил ИИ Лорд
+                        else if (mainWinner.MobileParty != null && mainWinner.MobileParty.IsLordParty)
+                        {
+                            mainWinner.ItemRoster.AddToCounts(item.Item, 1);
+                        }
+                    }
+                }
+            }
+
+            TempBattleLoot = null;
         }
     }
 }
