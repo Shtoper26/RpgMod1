@@ -45,22 +45,47 @@ namespace RpgMod1
             MilitaryDepotBehavior.NeededItems.Clear();
             ItemRoster simRoster = new ItemRoster(MilitaryDepotBehavior.DepotParty.ItemRoster);
             var members = PartyBase.MainParty.MemberRoster;
+
             for (int i = 0; i < members.Count; i++)
             {
                 var el = members.GetElementCopyAtIndex(i);
-                if (el.Character.IsHero) continue;
+                // ПРАВИЛО 1: Игнорируем героев и юнитов 0-1 тира (Tier <= 1)
+                if (el.Character == null || el.Character.IsHero || el.Character.Tier <= 1) continue;
+
+                // ПРАВИЛО 2: Находим "Отца" (Юнита 0 или 1 тира этой ветки) для отката
+                // Для простоты берем первый элемент в дереве апгрейдов, если он есть
+                CharacterObject parentUnit = el.Character.UpgradeTargets.Length > 0 ? el.Character : null;
+                // Примечание: если логика поиска "отца" сложнее, можно оставить текущего как базу
+
                 for (int n = 0; n < el.Number; n++)
                 {
-                    Equipment temp = el.Character.FirstBattleEquipment;
+                    // Берем Equipment текущего юнита (Тир N) как ЖЕСТКУЮ МАСКУ
+                    Equipment mask = el.Character.FirstBattleEquipment;
+
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.Cape; s++)
                     {
-                        EquipmentElement best = (s <= EquipmentIndex.Weapon3) ?
-                            ExtractBestWeaponForSlot(temp[s], simRoster) : ExtractBestForSlotInSim(s, simRoster);
-                        if (!best.IsEmpty) MilitaryDepotBehavior.NeededItems.Add(best.Item);
+                        ItemObject maskItem = mask[s].Item;
+
+                        // 1. Ищем на складе СТРОГО по типу предмета из маски
+                        EquipmentElement bestFromDepot = (s <= EquipmentIndex.Weapon3) ?
+                            ExtractBestWeaponForSlot(maskItem, simRoster) : ExtractBestForSlotInSim(s, simRoster);
+
+                        if (!bestFromDepot.IsEmpty)
+                        {
+                            // Нашли на складе — добавляем в список нужных
+                            MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
+                        }
+                        else if (parentUnit != null)
+                        {
+                            // 2. На складе НЕТ — берем предмет из ТОГО ЖЕ СЛОТА у юнита 0/1 тира
+                            ItemObject parentItem = parentUnit.FirstBattleEquipment[s].Item;
+                            if (parentItem != null) MilitaryDepotBehavior.NeededItems.Add(parentItem);
+                        }
                     }
                 }
             }
         }
+        
 
         public static void PrepareTempLoot() { if (MilitaryDepotBehavior.DepotParty != null) MilitaryDepotBehavior.TempBattleLoot = new ItemRoster(MilitaryDepotBehavior.DepotParty.ItemRoster); }
         public static EquipmentElement ExtractBestForSlot(EquipmentIndex slot) { return ExtractBestForSlotInSim(slot, MilitaryDepotBehavior.TempBattleLoot); }
@@ -87,24 +112,36 @@ namespace RpgMod1
             return EquipmentElement.Invalid;
         }
 
-        public static EquipmentElement ExtractBestWeaponForSlot(EquipmentElement current, ItemRoster roster)
+        public static EquipmentElement ExtractBestWeaponForSlot(ItemObject maskItem, ItemRoster roster)
         {
-            if (roster == null || roster.IsEmpty() || current.IsEmpty) return EquipmentElement.Invalid;
-            int bIdx = -1; float bPow = MilitaryDepotLogic.GetItemPower(current.Item);
+            // Если на складе пусто — сразу уходим на откат к "отцу"
+            if (roster == null || roster.IsEmpty()) return EquipmentElement.Invalid;
+
+            int bestIdx = -1;
+            float bestPower = -1f; // Любой предмет лучше пустоты
+
             for (int i = 0; i < roster.Count; i++)
             {
-                ItemObject item = roster[i].EquipmentElement.Item;
-                if (MilitaryDepotLogic.IsCompatibleWeapon(current.Item, item))
+                ItemObject repoItem = roster[i].EquipmentElement.Item;
+
+                // ЖЕСТКАЯ МАСКА: Тип предмета на складе должен СТРОГО совпадать с типом в шаблоне тира N
+                // (Например: Одноручное к Одноручному, Щит к Щиту)
+                if (maskItem != null && repoItem.ItemType == maskItem.ItemType)
                 {
-                    float p = MilitaryDepotLogic.GetItemPower(item);
-                    if (p > bPow) { bPow = p; bIdx = i; }
+                    float p = MilitaryDepotLogic.GetItemPower(repoItem);
+                    if (p > bestPower)
+                    {
+                        bestPower = p;
+                        bestIdx = i;
+                    }
                 }
             }
-            if (bIdx != -1)
+
+            if (bestIdx != -1)
             {
-                EquipmentElement best = roster[bIdx].EquipmentElement;
-                roster.AddToCounts(best, -1);
-                return best;
+                EquipmentElement bestFound = roster[bestIdx].EquipmentElement;
+                roster.AddToCounts(bestFound, -1);
+                return bestFound;
             }
             return EquipmentElement.Invalid;
         }

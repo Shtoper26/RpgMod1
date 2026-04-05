@@ -46,9 +46,15 @@ namespace RpgMod1
     [HarmonyPatch(typeof(Mission), "AfterStart")]
     public class MissionStartPatch
     {
+        private static Mission _activeMission;
         static void Postfix(Mission __instance)
         {
-            MilitaryDepotCache.Clear();
+            if (_activeMission == __instance) return; // И это
+            _activeMission = __instance;
+
+            MilitaryDepotCache.Clear(); 
+
+            
             InformationManager.DisplayMessage(new InformationMessage("[Склад] Инициализация боя...", Color.FromUint(0xFFFFFF00)));
 
             // 1. Пытаемся взять глобальное событие

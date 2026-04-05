@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using TaleWorlds.CampaignSystem;
+using TaleWorlds.CampaignSystem.Extensions;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
@@ -44,7 +45,8 @@ namespace RpgMod1
                 for (EquipmentIndex slot = EquipmentIndex.Weapon0; slot <= EquipmentIndex.Cape; slot++)
                 {
                     EquipmentElement best = (slot <= EquipmentIndex.Weapon3)
-                        ? MilitaryDepotActions.ExtractBestWeaponForSlot(character.FirstBattleEquipment[slot], simRoster)
+                        //? MilitaryDepotActions.ExtractBestWeaponForSlot(character.FirstBattleEquipment[slot],  simRoster)
+                        ? MilitaryDepotActions.ExtractBestWeaponForSlot(character.FirstBattleEquipment[slot].Item, simRoster)
                         : MilitaryDepotActions.ExtractBestForSlotInSim(slot, simRoster);
 
                     if (!best.IsEmpty)
