@@ -89,6 +89,9 @@ namespace RpgMod1
             if (partyBase == null || partyBase.MobileParty == null) return;
             MobileParty mobileParty = partyBase.MobileParty;
 
+            // ИСКЛЮЧАЕМ жителей деревень, чтобы они не выходили голыми (у них пустые инвентари)
+            if (mobileParty.IsVillager) return;
+
             if (mobileParty.IsMainParty)
             {
                 if (MilitaryDepotBehavior.DepotParty != null)

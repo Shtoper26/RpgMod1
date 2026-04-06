@@ -94,7 +94,7 @@ namespace RpgMod1
                             DepotParty.ItemRoster.AddToCounts(item.Item, 1);
                         }
                         // Если победил ИИ Лорд
-                        else if (mainWinner.MobileParty != null && mainWinner.MobileParty.IsLordParty)
+                        else if (mainWinner.MobileParty != null && !mainWinner.MobileParty.IsVillager)
                         {
                             mainWinner.ItemRoster.AddToCounts(item.Item, 1);
                         }
