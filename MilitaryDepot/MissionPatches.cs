@@ -33,7 +33,7 @@ namespace RpgMod1
                     MobileParty mobileParty = partyBase.MobileParty;
                     CharacterObject character = agentBuildData.AgentCharacter as CharacterObject;
 
-                    Equipment customEquip = MilitaryDepotCache.GetPredefinedEquipment(mobileParty, character);
+                    Equipment customEquip = MilitaryDepotCache.GetPredefinedEquipment(character);
                     if (customEquip != null)
                     {
                         agentBuildData.Equipment(customEquip);
