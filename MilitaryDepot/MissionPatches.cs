@@ -15,16 +15,14 @@ namespace RpgMod1
     [HarmonyPatch(typeof(Mission), "SpawnAgent")]
     public class MissionSpawnPatch
     {
+        // В классе MissionSpawnPatch:
         static void Prefix(AgentBuildData agentBuildData)
         {
             if (agentBuildData.AgentCharacter != null && !agentBuildData.AgentCharacter.IsHero)
             {
-                // Пытаемся достать PartyBase через интерфейс IAgentOriginBase
                 IAgentOriginBase origin = agentBuildData.AgentOrigin;
                 if (origin == null) return;
 
-                // В Bannerlord почти все отряды в миссии — это PartyAgentOrigin или SimpleAgentOrigin
-                // Мы ищем тот, у которого есть свойство .Party
                 PropertyInfo partyProperty = origin.GetType().GetProperty("Party");
                 PartyBase partyBase = partyProperty?.GetValue(origin) as PartyBase;
 
@@ -33,7 +31,9 @@ namespace RpgMod1
                     MobileParty mobileParty = partyBase.MobileParty;
                     CharacterObject character = agentBuildData.AgentCharacter as CharacterObject;
 
-                    Equipment customEquip = MilitaryDepotCache.GetPredefinedEquipment(character);
+                    // ПЕРЕДАЕМ mobileParty, чтобы получить ЕГО план, а не общий
+                    Equipment customEquip = MilitaryDepotCache.GetPredefinedEquipment(mobileParty, character);
+
                     if (customEquip != null)
                     {
                         agentBuildData.Equipment(customEquip);

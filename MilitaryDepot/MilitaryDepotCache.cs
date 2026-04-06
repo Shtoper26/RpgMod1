@@ -10,11 +10,15 @@ namespace RpgMod1
 {
     public static class MilitaryDepotCache
     {
-        // Очередь планов: Ключ - Тип Юнита, Значение - Список готовых комплектов
-        private static Dictionary<CharacterObject, Queue<Equipment>> GlobalPlan = new Dictionary<CharacterObject, Queue<Equipment>>();
+        // В начале файла MilitaryDepotCache.cs измени структуру словарей:
 
-        // Резервная копия (Золотой образец) на случай, если юнитов больше, чем в ростере
-        private static Dictionary<CharacterObject, Equipment> FallbackSamples = new Dictionary<CharacterObject, Equipment>();
+        // Теперь ключ — это MobileParty, а значение — словарь юнитов этого отряда
+        private static Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>> GlobalPlan =
+            new Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>>();
+
+        // Аналогично для образцов (Fallback)
+        private static Dictionary<MobileParty, Dictionary<CharacterObject, Equipment>> FallbackSamples =
+            new Dictionary<MobileParty, Dictionary<CharacterObject, Equipment>>();
 
         public static void Clear()
         {
@@ -27,35 +31,35 @@ namespace RpgMod1
             if (party?.MemberRoster == null || inventory == null) return;
 
             ItemRoster simRoster = new ItemRoster(inventory);
-            Clear();
+            // УДАЛЕНО: Clear(); <-- Больше не чистим здесь!
 
-            // Сортируем юнитов по уровню, чтобы сначала раздать экипировку более сильным (обычно более редким) юнитам, а потом уже "заполнять" остальных
+            // Инициализируем словари для конкретного отряда
+            if (!GlobalPlan.ContainsKey(party))
+                GlobalPlan[party] = new Dictionary<CharacterObject, Queue<Equipment>>();
+
+            if (!FallbackSamples.ContainsKey(party))
+                FallbackSamples[party] = new Dictionary<CharacterObject, Equipment>();
 
             var sortedTroops = party.MemberRoster.GetTroopRoster()
-    .OrderByDescending(t => t.Character.Level);
+                .OrderByDescending(t => t.Character.Level);
 
             foreach (var element in sortedTroops)
             {
                 CharacterObject character = element.Character;
-                // Пропускаем героев и рекрутов (0-1 тир)
                 if (character == null || character.IsHero || character.Tier <= 1) continue;
 
-                if (!GlobalPlan.ContainsKey(character))
-                    GlobalPlan[character] = new Queue<Equipment>();
+                if (!GlobalPlan[party].ContainsKey(character))
+                    GlobalPlan[party][character] = new Queue<Equipment>();
 
-                // Находим "отца" (рекрута) для этого типа юнита
                 CharacterObject parentUnit = MilitaryDepotLogic.GetFirstTierCharacter(character);
 
-                // Создаем планы для всех солдат этого типа в отряде
                 for (int n = 0; n < element.Number; n++)
                 {
                     Equipment finalEquip = new Equipment();
-                    // ВСЕГДА берем ПЕРВУЮ маску юнита (индекс 0), игнорируя вариации игры
                     Equipment mask = character.FirstBattleEquipment;
 
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.Cape; s++)
                     {
-                        // Логика: Склад -> Рекрут
                         EquipmentElement best = (s <= EquipmentIndex.Weapon3)
                             ? MilitaryDepotActions.ExtractBestWeaponForSlot(mask[s].Item, simRoster)
                             : MilitaryDepotActions.ExtractBestForSlotInSim(s, simRoster);
@@ -66,40 +70,40 @@ namespace RpgMod1
                             finalEquip[s] = parentUnit.FirstBattleEquipment[s];
                     }
 
-                    GlobalPlan[character].Enqueue(finalEquip);
+                    GlobalPlan[party][character].Enqueue(finalEquip);
 
-                    // Сохраняем первый созданный план как образец для "внезапных" юнитов
-                    if (!FallbackSamples.ContainsKey(character))
-                        FallbackSamples[character] = finalEquip;
+                    if (!FallbackSamples[party].ContainsKey(character))
+                        FallbackSamples[party][character] = finalEquip;
                 }
             }
         }
 
-        public static Equipment GetPredefinedEquipment(CharacterObject character)
+        // ОБНОВЛЕННЫЙ МЕТОД ВЫДАЧИ: теперь нам нужно знать, чей это юнит
+        public static Equipment GetPredefinedEquipment(MobileParty party, CharacterObject character)
         {
-            if (character == null) return null;
+            if (party == null || character == null || character.IsHero || character.Tier <= 1) return null;
 
-            // Если это юнит 2+ тира, мы ОБЯЗАНЫ выдать наш план
-            if (character.Tier > 1 && !character.IsHero)
+            // 1. Ищем планы конкретно этого отряда
+            if (GlobalPlan.TryGetValue(party, out var partyPlans))
             {
-                // 1. Пытаемся взять из очереди
-                if (GlobalPlan.TryGetValue(character, out var queue) && queue.Count > 0)
+                if (partyPlans.TryGetValue(character, out var queue) && queue.Count > 0)
                 {
                     return queue.Dequeue();
                 }
 
-                // 2. Если очередь пуста (тот самый баг с количеством), выдаем образец
-                if (FallbackSamples.TryGetValue(character, out var sample))
+                // 2. Если очередь пуста, берем образец этого отряда
+                if (FallbackSamples.TryGetValue(party, out var partySamples))
                 {
-                    return sample;
+                    if (partySamples.TryGetValue(character, out var sample))
+                        return sample;
                 }
-
-                // 3. Если даже образца нет (юнит-призрак), принудительно делаем его рекрутом
-                CharacterObject parent = MilitaryDepotLogic.GetFirstTierCharacter(character);
-                if (parent != null) return parent.FirstBattleEquipment;
             }
 
-            return null; // Рекруты и герои идут по ванили
+            // 3. Крайний случай (рекрут)
+            CharacterObject parent = MilitaryDepotLogic.GetFirstTierCharacter(character);
+            return parent?.FirstBattleEquipment;
         }
+
+        
     }
 }
