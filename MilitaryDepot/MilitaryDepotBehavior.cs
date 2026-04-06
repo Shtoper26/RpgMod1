@@ -47,10 +47,31 @@ namespace RpgMod1
             List<CharacterObject> casualties = new List<CharacterObject>();
 
             // Временный лог что контролировать сбор лута ИИ 
-            if (mainWinner.MobileParty != null && mainWinner.MobileParty.IsLordParty)
+            //if (mainWinner.MobileParty != null && mainWinner.MobileParty.IsLordParty)
+            //{
+            //    InformationManager.DisplayMessage(new InformationMessage($"[Debug] Лорд {mainWinner.Name} собрал лут после боя."));
+            //}
+            if (mainWinner.MobileParty != null && !mainWinner.MobileParty.IsVillager)
             {
-                InformationManager.DisplayMessage(new InformationMessage($"[Debug] Лорд {mainWinner.Name} собрал лут после боя."));
+                string partyName = mainWinner.Name.ToString();
+                string message;
+
+                // Проверяем, является ли победитель лордом или игроком
+                if (mainWinner.MobileParty.IsLordParty || mainWinner.MobileParty.IsMainParty)
+                {
+                    message = $"[Debug] Лорд {partyName} собрал лут после боя.";
+                }
+                else
+                {
+                    // Для бандитов, караванов и прочих
+                    message = $"[Debug] Отряд {partyName} собрал лут после боя.";
+                }
+
+                // Вывод сообщения в игровой лог (желтым цветом для заметности)
+                InformationManager.DisplayMessage(new InformationMessage(message, Color.FromUint(0xFFFFFF00)));
             }
+
+
 
             // Перебираем все отряды на проигравшей стороне
             foreach (MapEventParty loserParty in mapEvent.PartiesOnSide(loserSide))
@@ -100,6 +121,9 @@ namespace RpgMod1
                         }
                     }
                 }
+                 // добавляем диагностическое сообщение:
+
+                
             }
 
             TempBattleLoot = null;
