@@ -29,7 +29,12 @@ namespace RpgMod1
             ItemRoster simRoster = new ItemRoster(inventory);
             Clear();
 
-            foreach (var element in party.MemberRoster.GetTroopRoster())
+            // Сортируем юнитов по уровню, чтобы сначала раздать экипировку более сильным (обычно более редким) юнитам, а потом уже "заполнять" остальных
+
+            var sortedTroops = party.MemberRoster.GetTroopRoster()
+    .OrderByDescending(t => t.Character.Level);
+
+            foreach (var element in sortedTroops)
             {
                 CharacterObject character = element.Character;
                 // Пропускаем героев и рекрутов (0-1 тир)
