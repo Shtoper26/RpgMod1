@@ -109,10 +109,8 @@ namespace RpgMod1
 
                     if (item.Item != null && MBRandom.RandomFloat < lootChance)
                     {
-                        // Исправляем ошибку CS1061: проверяем игрока через MobileParty
-                        //if (mainWinner == PartyBase.MainParty)
-                        // военный лут после боя попадает на армейский склад (если победил игрок) или в инвентарь победившего ИИ Лорда (если победил ИИ Лорд)
-                        if (mainWinner.MobileParty != null && mainWinner.MobileParty.IsMainParty)
+                        
+                        if (mainWinner == PartyBase.MainParty)                        
                         {
                             DepotParty.ItemRoster.AddToCounts(item.Item, 1);
                         }
