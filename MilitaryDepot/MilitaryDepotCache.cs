@@ -134,7 +134,7 @@ namespace RpgMod1
             CharacterObject parent = MilitaryDepotLogic.GetFirstTierCharacter(character);
             return parent?.FirstBattleEquipment;
         }
-        private static EquipmentElement GetBaseHorseHarness(CharacterObject character)
+        public static EquipmentElement GetBaseHorseHarness(CharacterObject character)
         {
             CharacterObject current = character;
             // Поднимаемся вверх по дереву апгрейдов (к предкам)
