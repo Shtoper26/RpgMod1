@@ -40,51 +40,7 @@ namespace RpgMod1
             MilitaryDepotLogs.LogTransferComplete(count);
         }
 
-        /* public static void UpdateNeededItemsList()
-         {
-             MilitaryDepotBehavior.NeededItems.Clear();
-             ItemRoster simRoster = new ItemRoster(MilitaryDepotBehavior.DepotParty.ItemRoster);
-             var members = PartyBase.MainParty.MemberRoster;
-
-             for (int i = 0; i < members.Count; i++)
-             {
-                 var el = members.GetElementCopyAtIndex(i);
-                 // ПРАВИЛО 1: Игнорируем героев и юнитов 0-1 тира (Tier <= 1)
-                 if (el.Character == null || el.Character.IsHero || el.Character.Tier <= 1) continue;
-
-                 // ПРАВИЛО 2: Находим "Отца" (Юнита 0 или 1 тира этой ветки) для отката
-                 // Для простоты берем первый элемент в дереве апгрейдов, если он есть
-                 CharacterObject parentUnit = el.Character.UpgradeTargets.Length > 0 ? el.Character : null;
-                 // Примечание: если логика поиска "отца" сложнее, можно оставить текущего как базу
-
-                 for (int n = 0; n < el.Number; n++)
-                 {
-                     // Берем Equipment текущего юнита (Тир N) как ЖЕСТКУЮ МАСКУ
-                     Equipment mask = el.Character.FirstBattleEquipment;
-
-                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.Cape; s++)
-                     {
-                         ItemObject maskItem = mask[s].Item;
-
-                         // 1. Ищем на складе СТРОГО по типу предмета из маски
-                         EquipmentElement bestFromDepot = (s <= EquipmentIndex.Weapon3) ?
-                             ExtractBestWeaponForSlot(maskItem, simRoster) : ExtractBestForSlotInSim(s, simRoster);
-
-                         if (!bestFromDepot.IsEmpty)
-                         {
-                             // Нашли на складе — добавляем в список нужных
-                             MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
-                         }
-                         else if (parentUnit != null)
-                         {
-                             // 2. На складе НЕТ — берем предмет из ТОГО ЖЕ СЛОТА у юнита 0/1 тира
-                             ItemObject parentItem = parentUnit.FirstBattleEquipment[s].Item;
-                             if (parentItem != null) MilitaryDepotBehavior.NeededItems.Add(parentItem);
-                         }
-                     }
-                 }
-             }
-         }*/
+        
 
         public static void UpdateNeededItemsList()
         {
