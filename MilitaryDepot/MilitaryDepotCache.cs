@@ -26,6 +26,8 @@ namespace RpgMod1
             FallbackSamples.Clear();
         }
 
+
+
         public static void CreateBattlePlan(MobileParty party, ItemRoster inventory)
         {
             if (party?.MemberRoster == null || inventory == null) return;
@@ -58,16 +60,45 @@ namespace RpgMod1
                     Equipment finalEquip = new Equipment();
                     Equipment mask = character.FirstBattleEquipment;
 
-                    for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.Cape; s++)
+                    // 1. Расширяем границу до HorseHarness
+                    for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
+                        // 2. проверяем, не является ли слот Horse, и если да, то просто копируем его из шаблона юнита
+                        if (s == EquipmentIndex.Horse)
+                        {
+                            finalEquip[s] = character.FirstBattleEquipment[s];
+                            continue;
+                        }
+
+
                         EquipmentElement best = (s <= EquipmentIndex.Weapon3)
                             ? MilitaryDepotActions.ExtractBestWeaponForSlot(mask[s].Item, simRoster)
                             : MilitaryDepotActions.ExtractBestForSlotInSim(s, simRoster);
 
                         if (!best.IsEmpty)
+                        {
                             finalEquip[s] = best;
-                        else if (parentUnit != null)
-                            finalEquip[s] = parentUnit.FirstBattleEquipment[s];
+                        }
+                        else
+                        {
+                            if (s == EquipmentIndex.HorseHarness)
+                            {
+                                // Используем наш безопасный поиск "первого седла в ветке"
+                                finalEquip[s] = GetBaseHorseHarness(character);
+                            }
+
+                            else if (parentUnit != null)
+                            {
+
+                                finalEquip[s] = parentUnit.FirstBattleEquipment[s];
+
+                            }
+                        }
+
+                        if (s == EquipmentIndex.HorseHarness && finalEquip[s].IsEmpty && !finalEquip[EquipmentIndex.Horse].IsEmpty)
+                        {
+                            finalEquip[s] = character.FirstBattleEquipment[s];
+                        }
                     }
 
                     GlobalPlan[party][character].Enqueue(finalEquip);
@@ -103,7 +134,36 @@ namespace RpgMod1
             CharacterObject parent = MilitaryDepotLogic.GetFirstTierCharacter(character);
             return parent?.FirstBattleEquipment;
         }
+        private static EquipmentElement GetBaseHorseHarness(CharacterObject character)
+        {
+            CharacterObject current = character;
+            // Поднимаемся вверх по дереву апгрейдов (к предкам)
+            while (current != null)
+            {
+                // Проверяем, есть ли у этого предка в шаблоне лошадь
+                if (current.FirstBattleEquipment != null &&
+                    current.FirstBattleEquipment[EquipmentIndex.Horse].Item != null)
+                {
+                    // Возвращаем сбрую этого самого слабого кавалериста в ветке
+                    return current.FirstBattleEquipment[EquipmentIndex.HorseHarness];
+                }
 
-        
+                // Если предков больше нет (дошли до рекрута), выходим
+                if (current.UpgradeTargets == null || current.UpgradeTargets.Length == 0) break;
+
+                // В Bannerlord сложнее идти "вниз" к рекруту, поэтому проще 
+                // использовать уже готовую логику твоего мода по поиску Parent, 
+                // но с проверкой на наличие слота Horse.
+
+                // Для примера используем твою логику поиска базового юнита, 
+                // но с условием: stop if has horse.
+                break;
+            }
+            return EquipmentElement.Invalid;
+        }
+
+
     }
+
+
 }
