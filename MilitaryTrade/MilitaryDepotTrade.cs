@@ -4,6 +4,7 @@ using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Settlements;
 using TaleWorlds.Core;
+using TaleWorlds.Library;
 
 namespace RpgMod1.MilitaryTrade
 {
@@ -15,13 +16,18 @@ namespace RpgMod1.MilitaryTrade
             // 15% резерв от численности отряда
             int reserveCount = (int)(mobileParty.MemberRoster.TotalManCount * 0.15f);
             if (reserveCount < 5) reserveCount = 5;
+            InformationManager.DisplayMessage(new InformationMessage($"[MilitaryTrade] Лорд {mobileParty.LeaderHero?.Name} вошел в {settlement.Name}. Резерв: {reserveCount} ед."));
+
+            var sortedItems = mobileParty.ItemRoster
+        .OrderByDescending(x => x.EquipmentElement.ItemValue)
+        .ToList();
 
             Dictionary<ItemObject.ItemTypeEnum, int> reservedTracker = new Dictionary<ItemObject.ItemTypeEnum, int>();
-            var itemElements = mobileParty.ItemRoster.ToList();
 
-            foreach (var element in itemElements)
+            foreach (var element in sortedItems)
             {
                 ItemObject item = element.EquipmentElement.Item;
+
                 if (item.IsFood) continue;
 
                 // Ванильный фильтр лошадей
@@ -60,9 +66,15 @@ namespace RpgMod1.MilitaryTrade
 
             if (amountToSell > 0)
             {
+                string itemType = element.EquipmentElement.Item.ItemType.ToString();
+                InformationManager.DisplayMessage(new InformationMessage(
+                    $"[MilitaryTrade] {seller.Name} продал {amountToSell}x {element.EquipmentElement.Item.Name} ({itemType}) за {price} дин. в {settlement.Name}",
+                    Color.FromUint(0xFFF7941D))); // Оранжевый цвет для логов торговли
+
                 TaleWorlds.CampaignSystem.Actions.SellItemsAction.Apply(seller.Party, settlement.Party, element, amountToSell, settlement);
                 gold -= (price * amountToSell);
             }
+            InformationManager.DisplayMessage(new InformationMessage($"[MilitaryTrade] {seller.Name} продал {count}x {element.EquipmentElement.Item.Name} в {settlement.Name}"));
         }
         private static bool IsEquipment(ItemObject item)
         {
