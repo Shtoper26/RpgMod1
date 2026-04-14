@@ -17,7 +17,7 @@ namespace RpgMod1
 
         public override void RegisterEvents()
         {
-            CampaignEvents.MapEventEnded.AddNonSerializedListener(this, OnMapEventEnded);
+            // CampaignEvents.MapEventEnded.AddNonSerializedListener(this, OnMapEventEnded);
         }
 
         public override void SyncData(IDataStore dataStore)
@@ -25,7 +25,7 @@ namespace RpgMod1
             dataStore.SyncData<MobileParty>("_militaryDepotParty", ref DepotParty);
         }
 
-        private void OnMapEventEnded(MapEvent mapEvent)
+        /*private void OnMapEventEnded(MapEvent mapEvent)
         {
             // Проверяем наличие события и склада
             if (mapEvent == null || DepotParty == null) return;
@@ -96,7 +96,7 @@ namespace RpgMod1
                 }
             }
 
-            // 4. Шанс выпадения предмета (50%)
+            // 4. Шанс выпадения предмета (100%)
             float lootChance = 1f;
 
             foreach (CharacterObject victim in casualties)
@@ -127,6 +127,6 @@ namespace RpgMod1
             }
 
             TempBattleLoot = null;
-        }
+        }*/
     }
 }

@@ -1,7 +1,9 @@
-﻿using System.Collections.Generic;
+﻿using RpgMod1.BattleLootSystem;
+using System.Collections.Generic;
 using System.Linq;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Extensions;
+using TaleWorlds.CampaignSystem.MapEvents;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
@@ -10,9 +12,7 @@ namespace RpgMod1
 {
     public static class MilitaryDepotCache
     {
-        // В начале файла MilitaryDepotCache.cs измени структуру словарей:
-
-        // Теперь ключ — это MobileParty, а значение — словарь юнитов этого отряда
+        
         private static Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>> GlobalPlan =
             new Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>>();
 
@@ -25,6 +25,7 @@ namespace RpgMod1
             GlobalPlan.Clear();
             FallbackSamples.Clear();
         }
+        
 
 
 
@@ -33,7 +34,7 @@ namespace RpgMod1
             if (party?.MemberRoster == null || inventory == null) return;
 
             ItemRoster simRoster = new ItemRoster(inventory);
-            // УДАЛЕНО: Clear(); <-- Больше не чистим здесь!
+            
 
             // Инициализируем словари для конкретного отряда
             if (!GlobalPlan.ContainsKey(party))
@@ -78,6 +79,23 @@ namespace RpgMod1
                         if (!best.IsEmpty)
                         {
                             finalEquip[s] = best;
+                            simRoster.AddToCounts(best, -1);
+                            if (party.MapEvent != null)
+                            {
+                                // Регистрируем: Отряд (party.Id) в Битве (party.MapEvent) выдал предмет (best.Item)
+                                RpgMod1.BattleLootSystem.BattleEquipmentTracker.RegisterIssuedEquipment(
+                                    party.MapEvent,
+                                    party.Id.ToString(),
+                                    best.Item,
+                                    1
+                                );
+                            }
+
+                            var currentEvent = TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
+                            if (currentEvent != null)
+                            {
+                                BattleEquipmentTracker.RegisterIssuedEquipment(currentEvent, party.StringId, best.Item, 1);
+                            }
                         }
                         else
                         {
@@ -99,6 +117,11 @@ namespace RpgMod1
                         {
                             finalEquip[s] = character.FirstBattleEquipment[s];
                         }
+
+                        // Внутри метода CreateBattlePlan (MilitaryDepotCache.cs)
+                        // Сразу после того, как ты определил, какой предмет (best) выдать юниту:
+
+                        
                     }
 
                     GlobalPlan[party][character].Enqueue(finalEquip);
