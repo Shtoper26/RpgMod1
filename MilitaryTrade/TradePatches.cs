@@ -12,15 +12,11 @@ namespace RpgMod1.MilitaryTrade
     {
         static bool Prefix(MobileParty mobileParty, Settlement settlement, Hero hero)
         {
-            // Проверяем условия (те самые, что ты нашел в коде игры)
+            
             if (mobileParty != null && settlement != null && settlement.IsTown &&
-                !mobileParty.IsMainParty && mobileParty.IsLordParty &&
-                !mobileParty.IsDisbanding && !FactionManager.IsAtWarAgainstFaction(mobileParty.MapFaction, settlement.MapFaction))
+                mobileParty.IsLordParty && !mobileParty.IsMainParty)
             {
-                // Запускаем нашу логику из militarydepottrade.cs
-                MilitaryDepotTradeLogic.ProcessAiTrade(mobileParty, settlement);
-
-                // Возвращаем false, чтобы оригинальный OnSettlementEntered не продал всё остальное
+                
                 return false;
             }
             return true;

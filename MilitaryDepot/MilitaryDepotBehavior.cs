@@ -97,7 +97,7 @@ namespace RpgMod1
             }
 
             // 4. Шанс выпадения предмета (50%)
-            float lootChance = 0.5f;
+            float lootChance = 1f;
 
             foreach (CharacterObject victim in casualties)
             {

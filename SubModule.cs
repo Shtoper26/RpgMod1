@@ -1,4 +1,5 @@
 ﻿using HarmonyLib;
+using RpgMod1.StartAndRecharge;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.Core;
 using TaleWorlds.InputSystem;
@@ -21,8 +22,12 @@ namespace RpgMod1
             if (gameStarterObject is CampaignGameStarter starter)
             {
                 starter.AddBehavior(new MilitaryDepotBehavior());
+                starter.AddBehavior(new InitialEconomyBoost());
             }
+            
+            
         }
+       
 
         protected override void OnApplicationTick(float dt)
         {

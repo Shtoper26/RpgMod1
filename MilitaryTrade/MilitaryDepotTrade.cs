@@ -1,6 +1,8 @@
-﻿using System.Collections.Generic;
+﻿using HarmonyLib;
+using System.Collections.Generic;
 using System.Linq;
 using TaleWorlds.CampaignSystem;
+using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Settlements;
 using TaleWorlds.Core;
@@ -8,81 +10,83 @@ using TaleWorlds.Library;
 
 namespace RpgMod1.MilitaryTrade
 {
+    // Класс-контейнер для патчей торговли
     public static class MilitaryDepotTradeLogic
     {
-        public static void ProcessAiTrade(MobileParty mobileParty, Settlement settlement)
+        [HarmonyPatch(typeof(SellItemsAction), "Apply")]
+        public class SellItemsActionPatch
         {
-            int townGold = settlement.SettlementComponent.Gold;
-            // 15% резерв от численности отряда
-            int reserveCount = (int)(mobileParty.MemberRoster.TotalManCount * 0.15f);
-            if (reserveCount < 5) reserveCount = 5;
-            InformationManager.DisplayMessage(new InformationMessage($"[MilitaryTrade] Лорд {mobileParty.LeaderHero?.Name} вошел в {settlement.Name}. Резерв: {reserveCount} ед."));
-
-            var sortedItems = mobileParty.ItemRoster
-        .OrderByDescending(x => x.EquipmentElement.ItemValue)
-        .ToList();
-
-            Dictionary<ItemObject.ItemTypeEnum, int> reservedTracker = new Dictionary<ItemObject.ItemTypeEnum, int>();
-
-            foreach (var element in sortedItems)
+            static bool Prefix(PartyBase receiverParty, PartyBase payerParty, ItemRosterElement subject, ref int number, Settlement currentSettlement)
             {
-                ItemObject item = element.EquipmentElement.Item;
-
-                if (item.IsFood) continue;
-
-                // Ванильный фильтр лошадей
-                if (item.ItemType == ItemObject.ItemTypeEnum.Horse)
+                // Нас интересуют только продажи от мобильных отрядов лордов
+                if (receiverParty != null && receiverParty.IsMobile && receiverParty.MobileParty.IsLordParty)
                 {
-                    if (item.HorseComponent.IsRideable && element.EquipmentElement.ItemModifier == null && !item.HorseComponent.IsPackAnimal)
-                        continue;
-                }
+                    MobileParty lordParty = receiverParty.MobileParty;
+                    ItemObject item = subject.EquipmentElement.Item;
 
-                if (IsEquipment(item))
-                {
-                    ItemObject.ItemTypeEnum type = item.ItemType;
-                    if (!reservedTracker.ContainsKey(type)) reservedTracker[type] = 0;
+                    bool isMilitary = IsMilitaryEquipment(item);
 
-                    if (reservedTracker[type] < reserveCount)
+                    if (isMilitary)
                     {
-                        int needed = reserveCount - reservedTracker[type];
-                        int toKeep = (element.Amount > needed) ? needed : element.Amount;
-                        reservedTracker[type] += toKeep;
+                        // Считаем лимит: 100% состава + 15% запас
+                        int totalTroops = lordParty.MemberRoster.TotalManCount;
+                        int reserveCount = (int)(totalTroops * 1.15f);
+                        if (reserveCount < 10) reserveCount = 10;
 
-                        if (element.Amount > toKeep)
-                            ExecuteSell(mobileParty, settlement, element, element.Amount - toKeep, ref townGold);
+                        // Считаем, сколько предметов этого ТИПА уже есть у лорда
+                        int currentTypeCount = lordParty.ItemRoster
+                            .Where(x => x.EquipmentElement.Item.ItemType == item.ItemType)
+                            .Sum(x => x.Amount);
 
-                        continue;
+                        // Если после продажи останется меньше резерва
+                        if (currentTypeCount - number < reserveCount)
+                        {
+                            int allowedToSell = currentTypeCount - reserveCount;
+
+                            if (allowedToSell <= 0)
+                            {
+                                // Полностью отменяем продажу предмета
+                                return false;
+                            }
+                            else
+                            {
+                                // Продаем только то, что выходит за рамки 115%
+                                number = allowedToSell;
+                            }
+                        }
+
+                        // ЛОГ: Продажа военного снаряжения (Оранжевый)
+                        if (number > 0 && currentSettlement != null)
+                        {
+                            int price = currentSettlement.Town?.GetItemPrice(subject.EquipmentElement, lordParty, true) ?? 0;
+                            InformationManager.DisplayMessage(new InformationMessage(
+                                $"[ТОРГОВЛЯ] {lordParty.Name} продал излишек: {number}x {item.Name} за {price * number} дин. в {currentSettlement.Name}",
+                                Color.FromUint(0xFFF7941D)));
+                        }
+                    }
+                    else
+                    {
+                        // ЛОГ: Продажа обычных товаров (Белый)
+                        if (number > 0 && currentSettlement != null)
+                        {
+                            int price = currentSettlement.Town?.GetItemPrice(subject.EquipmentElement, lordParty, true) ?? 0;
+                            InformationManager.DisplayMessage(new InformationMessage(
+                                $"[РЫНОК] {lordParty.Name} продал товар: {number}x {item.Name} в {currentSettlement.Name}",
+                                Color.FromUint(0xFFFFFFFF)));
+                        }
                     }
                 }
-                ExecuteSell(mobileParty, settlement, element, element.Amount, ref townGold);
+                return true; // Разрешаем выполнение оригинального метода (с учетом измененного number)
             }
-        }
 
-        private static void ExecuteSell(MobileParty seller, Settlement settlement, ItemRosterElement element, int count, ref int gold)
-        {
-            if (count <= 0 || gold <= 0) return;
-            int price = settlement.Town.GetItemPrice(element.EquipmentElement, seller, true);
-            int amountToSell = (price * count <= gold) ? count : (gold / price);
-
-            if (amountToSell > 0)
+            private static bool IsMilitaryEquipment(ItemObject item)
             {
-                string itemType = element.EquipmentElement.Item.ItemType.ToString();
-                InformationManager.DisplayMessage(new InformationMessage(
-                    $"[MilitaryTrade] {seller.Name} продал {amountToSell}x {element.EquipmentElement.Item.Name} ({itemType}) за {price} дин. в {settlement.Name}",
-                    Color.FromUint(0xFFF7941D))); // Оранжевый цвет для логов торговли
-
-                TaleWorlds.CampaignSystem.Actions.SellItemsAction.Apply(seller.Party, settlement.Party, element, amountToSell, settlement);
-                gold -= (price * amountToSell);
+                if (item == null) return false;
+                // Оружие, Броня или Конская сбруя
+                return item.WeaponComponent != null ||
+                       item.ArmorComponent != null ||
+                       item.ItemType == ItemObject.ItemTypeEnum.HorseHarness;
             }
-            InformationManager.DisplayMessage(new InformationMessage($"[MilitaryTrade] {seller.Name} продал {count}x {element.EquipmentElement.Item.Name} в {settlement.Name}"));
-        }
-        private static bool IsEquipment(ItemObject item)
-        {
-            if (item == null) return false;
-
-            // Если у предмета есть компонент оружия или брони — это наше снаряжение
-            // (Лошадей мы отфильтровали раньше, так что они сюда не попадут)
-            return item.WeaponComponent != null || item.ArmorComponent != null;
         }
     }
 }

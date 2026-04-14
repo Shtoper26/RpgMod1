@@ -180,7 +180,7 @@ namespace RpgMod1
             var oldItems = party.ItemRoster
                 .Where(x => x.EquipmentElement.Item != null &&
                             x.EquipmentElement.Item.ItemType == newItem.ItemType &&
-                            MilitaryDepotLogic.GetItemPower(x.EquipmentElement.Item) < newItemPower * 0.7f) // Значительно слабее
+                            MilitaryDepotLogic.GetItemPower(x.EquipmentElement.Item) < newItemPower * 0.9f) // Значительно слабее
                 .ToList();
 
             foreach (var element in oldItems)
