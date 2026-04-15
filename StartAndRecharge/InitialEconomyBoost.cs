@@ -58,7 +58,9 @@ namespace RpgMod1.StartAndRecharge
                     foreach (var troopElement in party.MemberRoster.GetTroopRoster())
                     {
                         CharacterObject character = troopElement.Character;
-                        if (character == null) continue;
+
+                        if (character == null || character.IsHero) continue;
+                        
 
                         int troopCount = troopElement.Number;
                         Equipment equipment = character.FirstBattleEquipment;
