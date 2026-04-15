@@ -10,18 +10,7 @@ namespace RpgMod1.BattleLootSystem
     public static class BattleEquipmentTracker
     {
 
-        public static bool IsItemEquippedOnHero(Hero hero, ItemObject item)
-        {
-            if (hero == null || item == null) return false;
-
-            // Проверяем все 12 слотов снаряжения (оружие, броня, конь, сбруя)
-            for (int i = 0; i < 12; i++)
-            {
-                if (hero.BattleEquipment[(EquipmentIndex)i].Item == item) return true;
-                if (hero.CivilianEquipment[(EquipmentIndex)i].Item == item) return true;
-            }
-            return false;
-        }
+        
 
         // Словарь: ID битвы -> (ID отряда -> Список выданных вещей)
         private static readonly Dictionary<string, Dictionary<string, ItemRoster>> _battleRegistry =
