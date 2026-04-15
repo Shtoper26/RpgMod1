@@ -25,6 +25,16 @@ namespace RpgMod1
             dataStore.SyncData<MobileParty>("_militaryDepotParty", ref DepotParty);
         }
 
+        public void ClearInventory()
+        {
+            // Обращаемся к статическому полю напрямую без 'this'
+            if (DepotParty != null && DepotParty.ItemRoster != null)
+            {
+                DepotParty.ItemRoster.Clear();
+            }
+        }
+
+
         /*private void OnMapEventEnded(MapEvent mapEvent)
         {
             // Проверяем наличие события и склада

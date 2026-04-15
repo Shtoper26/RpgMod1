@@ -27,7 +27,19 @@ namespace RpgMod1
             
             
         }
-       
+
+        // Изменили protected на public
+        public override void OnGameEnd(Game game)
+        {
+            base.OnGameEnd(game);
+
+            var behavior = Campaign.Current?.GetCampaignBehavior<MilitaryDepotBehavior>();
+            if (behavior != null)
+            {
+                behavior.ClearInventory();
+            }
+        }
+
 
         protected override void OnApplicationTick(float dt)
         {
