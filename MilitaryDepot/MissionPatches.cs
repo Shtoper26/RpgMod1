@@ -37,9 +37,35 @@ namespace RpgMod1
                     if (customEquip != null)
                     {
                         agentBuildData.Equipment(customEquip);
+
+                        // логи для отладки
+                        // Собираем список всех предметов, которые сейчас надеты на юнита
+                        System.Collections.Generic.List<string> itemsNames = new System.Collections.Generic.List<string>();
+
+                        // Проверяем все 12 слотов (оружие, броня, конь)
+                        for (int i = 0; i < 12; i++)
+                        {
+                            var element = customEquip[(EquipmentIndex)i];
+                            if (element.Item != null)
+                            {
+                                // Добавляем название предмета в список
+                                itemsNames.Add(element.Item.Name.ToString());
+                            }
+                        }
+
+                        string partyName = mobileParty.Name.ToString();
+                        string unitName = character.Name.ToString();
+                        string allItems = string.Join(", ", itemsNames);
+
+                        // Выводим детальный лог
+                        InformationManager.DisplayMessage(new InformationMessage(
+                            $"[Склад] {partyName} | {unitName} одет в: {allItems}",
+                            mobileParty.IsMainParty ? Color.FromUint(0xFF00FF00) : Color.FromUint(0xFFFFFF00)));
                     }
+
                 }
             }
+            
         }
     }
 
@@ -92,6 +118,8 @@ namespace RpgMod1
             // ИСКЛЮЧАЕМ жителей деревень, чтобы они не выходили голыми (у них пустые инвентари)
             if (mobileParty.IsVillager) return;
 
+
+
             if (mobileParty.IsMainParty)
             {
                 if (MilitaryDepotBehavior.DepotParty != null)
@@ -105,6 +133,15 @@ namespace RpgMod1
                 MilitaryDepotCache.CreateBattlePlan(mobileParty, mobileParty.ItemRoster);
                 InformationManager.DisplayMessage(new InformationMessage($"[Склад] План для {mobileParty.Name} создан.", Color.FromUint(0xFF00FF00)));
             }
+
+            // Логи для отладки
+
+            string source = mobileParty.IsMainParty ? "Военный склад" : "Инвентарь отряда";
+
+            // Одна короткая строка: [Склад] Инициализация: Морские налетчики (Источник: Инвентарь отряда)
+            InformationManager.DisplayMessage(new InformationMessage(
+                $"[Склад] Инициализация: {mobileParty.Name} (Источник: {source})",
+                Color.FromUint(0xFFFFFF00)));
         }
     }
 }
