@@ -15,8 +15,18 @@ namespace RpgMod1.BattleLootSystem
         [HarmonyPostfix]
         public static void Postfix(MobileParty __result)
         {
-            if (__result == null || __result.MemberRoster == null) return;
-            if (__result.IsMainParty || __result.IsLordParty) return;
+            // 1. Сначала базовые проверки на null
+            if (__result == null) return;
+
+            // 2. ИГНОРИРУЕМ СКЛАД (Самая важная строка против краша)
+            // Если компонента нет — это технический отряд (как твой склад), его не трогаем.
+            if (__result.PartyComponent == null) return;
+
+            // Игнорируем по ID (на всякий случай)
+            if (__result.StringId != null && __result.StringId.Contains("military_depot_party")) return;
+
+            // 3. Теперь все остальные проверки БЕЗОПАСНЫ
+            if (__result.MemberRoster == null || __result.IsMainParty || __result.IsLordParty) return;
 
             float lootChance = 0f;
             string id = __result.StringId?.ToLower() ?? "";
