@@ -25,7 +25,6 @@ namespace RpgMod1
             GlobalPlan.Clear();
             FallbackSamples.Clear();
         }
-        
 
 
 
@@ -33,10 +32,9 @@ namespace RpgMod1
         {
             if (party?.MemberRoster == null || inventory == null) return;
 
+            // Создаем копию для симуляции, чтобы знать, что осталось на складе/в сумках
             ItemRoster simRoster = new ItemRoster(inventory);
-            
 
-            // Инициализируем словари для конкретного отряда
             if (!GlobalPlan.ContainsKey(party))
                 GlobalPlan[party] = new Dictionary<CharacterObject, Queue<Equipment>>();
 
@@ -61,16 +59,13 @@ namespace RpgMod1
                     Equipment finalEquip = new Equipment();
                     Equipment mask = character.FirstBattleEquipment;
 
-                    // 1. Расширяем границу до HorseHarness
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
-                        // 2. проверяем, не является ли слот Horse, и если да, то просто копируем его из шаблона юнита
                         if (s == EquipmentIndex.Horse)
                         {
                             finalEquip[s] = character.FirstBattleEquipment[s];
                             continue;
                         }
-
 
                         EquipmentElement best = (s <= EquipmentIndex.Weapon3)
                             ? MilitaryDepotActions.ExtractBestWeaponForSlot(mask[s].Item, simRoster)
@@ -79,58 +74,45 @@ namespace RpgMod1
                         if (!best.IsEmpty)
                         {
                             finalEquip[s] = best;
-                            simRoster.AddToCounts(best, -1);
-                            if (party.MapEvent != null)
-                            {
-                                // Регистрируем: Отряд (party.Id) в Битве (party.MapEvent) выдал предмет (best.Item)
-                                RpgMod1.BattleLootSystem.BattleEquipmentTracker.RegisterIssuedEquipment(
-                                    party.MapEvent,
-                                    party.Id.ToString(),
-                                    best.Item,
-                                    1
-                                );
-                            }
 
-                            var currentEvent = TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
-                            if (currentEvent != null)
+                            // 1. УДАЛЯЕМ из симуляции (чтобы не выдать этот же предмет второму солдату)
+                            //  simRoster.AddToCounts(best, -1); двойное удаление поэтому коментируем
+
+                            // 2. КРИТИЧЕСКИ ВАЖНО: УДАЛЯЕМ из реального инвентаря (чтобы не было дубля при луте)
+                            inventory.AddToCounts(best, -1);
+
+                            // 3. РЕГИСТРИРУЕМ В ТРЕКЕРЕ (только один раз)
+                            // Используем активное событие карты
+                            var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
+                            if (activeEvent != null)
                             {
-                                BattleEquipmentTracker.RegisterIssuedEquipment(currentEvent, party.StringId, best.Item, 1);
+                                // Используем Id.ToString(), так как ваш патч лута ищет именно по нему
+                                BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Id.ToString(), best.Item, 1);
                             }
                         }
                         else
                         {
+                            // Логика отката (Fallback) к предкам
                             if (s == EquipmentIndex.HorseHarness)
-                            {
-                                // Используем наш безопасный поиск "первого седла в ветке"
                                 finalEquip[s] = GetBaseHorseHarness(character);
-                            }
-
                             else if (parentUnit != null)
-                            {
-
                                 finalEquip[s] = parentUnit.FirstBattleEquipment[s];
-
-                            }
                         }
 
+                        // Проверка сбруи
                         if (s == EquipmentIndex.HorseHarness && finalEquip[s].IsEmpty && !finalEquip[EquipmentIndex.Horse].IsEmpty)
                         {
                             finalEquip[s] = character.FirstBattleEquipment[s];
                         }
-
-                        // Внутри метода CreateBattlePlan (MilitaryDepotCache.cs)
-                        // Сразу после того, как ты определил, какой предмет (best) выдать юниту:
-
-                        
                     }
 
                     GlobalPlan[party][character].Enqueue(finalEquip);
-
                     if (!FallbackSamples[party].ContainsKey(character))
                         FallbackSamples[party][character] = finalEquip;
                 }
             }
         }
+
 
         // ОБНОВЛЕННЫЙ МЕТОД ВЫДАЧИ: теперь нам нужно знать, чей это юнит
         public static Equipment GetPredefinedEquipment(MobileParty party, CharacterObject character)
