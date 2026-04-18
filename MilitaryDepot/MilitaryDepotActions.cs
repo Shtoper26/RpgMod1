@@ -13,11 +13,40 @@ namespace RpgMod1
         {
             if (MilitaryDepotBehavior.DepotParty == null)
             {
-                MilitaryDepotBehavior.DepotParty = MobileParty.CreateParty("military_depot_party", null);
-                MilitaryDepotBehavior.DepotParty.IsVisible = false;
+                // Ищем в списке всех мобильных отрядов по StringId
+                foreach (var party in MobileParty.All)
+                {
+                    if (party.StringId == "military_depot_party")
+                    {
+                        MilitaryDepotBehavior.DepotParty = party;
+                        break;
+                    }
+                }
+
+                if (MilitaryDepotBehavior.DepotParty == null)
+                {
+                    // Создаем легально с культурой игрока
+                    MilitaryDepotBehavior.DepotParty = MilitaryDepotComponent.CreateDepotParty(
+                        "military_depot_party",
+                        Hero.MainHero.Culture
+                    );
+
+                    // В 1.3.x настройки видимости и веса работают так:
+                    MilitaryDepotBehavior.DepotParty.IsVisible = false;
+                    MilitaryDepotBehavior.DepotParty.ActualClan = Clan.PlayerClan;
+
+                    // Чтобы отряд не создавал лагов в логике передвижения
+                    MilitaryDepotBehavior.DepotParty.IsActive = true;
+                }
             }
+
             UpdateNeededItemsList();
-            InventoryScreenHelper.OpenScreenAsInventoryOf(PartyBase.MainParty, MilitaryDepotBehavior.DepotParty.Party, CharacterObject.PlayerCharacter, null, null, null);
+            InventoryScreenHelper.OpenScreenAsInventoryOf(
+                PartyBase.MainParty,
+                MilitaryDepotBehavior.DepotParty.Party,
+                CharacterObject.PlayerCharacter,
+                null, null, null
+            );
         }
 
         public static void TransferUselessItems()
