@@ -7,20 +7,21 @@ using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.CampaignSystem.Settlements;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
+using TaleWorlds.SaveSystem;
 
 namespace RpgMod1
 {
 
     public class MilitaryDepotComponent : TaleWorlds.CampaignSystem.Party.PartyComponents.PartyComponent
     {
+        [SaveableField(1)]
         private readonly CultureObject _culture;
 
         // Исправление cs0534: Реализуем обязательные абстрактные свойства
         public override Hero PartyOwner => Hero.MainHero;
         public override Settlement HomeSettlement => Hero.MainHero.HomeSettlement;
 
-        // Исправление cs0115: В 1.3.15 Culture может быть обычным свойством, а не override
-        // Если ошибка cs0115 сохранится, попробуй убрать 'override'
+        
         public CultureObject Culture => _culture;
 
         public override TaleWorlds.Localization.TextObject Name => new TaleWorlds.Localization.TextObject("Military Depot");
@@ -31,7 +32,7 @@ namespace RpgMod1
         }
 
         // Исправление cs0534: Реализуем обязательный метод для баннера
-        public override TaleWorlds.Core.Banner GetDefaultComponentBanner()
+        public override Banner GetDefaultComponentBanner()
         {
             return Clan.PlayerClan?.Banner;
         }
@@ -39,6 +40,19 @@ namespace RpgMod1
         public static MobileParty CreateDepotParty(string stringId, CultureObject culture)
         {
             return MobileParty.CreateParty(stringId, new MilitaryDepotComponent(culture));
+        }
+    }
+
+    // Этот класс говорит игре: "Вот мой новый тип данных, его можно сохранять"
+    public class MilitaryDepotSaveableTypeDefiner : SaveableTypeDefiner
+    {
+        // Используйте любое большое число, например 2 123 456
+        public MilitaryDepotSaveableTypeDefiner() : base(2_123_456) { }
+
+        protected override void DefineClassTypes()
+        {
+            // Регистрируем ваш компонент
+            AddClassDefinition(typeof(MilitaryDepotComponent), 1);
         }
     }
 
