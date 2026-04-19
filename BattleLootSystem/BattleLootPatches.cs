@@ -37,10 +37,23 @@ namespace RpgMod1.BattleLootSystem
             // 1. СОБСТВЕННЫЙ ВОЗВРАТ (Победители забирают своё)
             foreach (var winnerPartyInfo in winnerSide.Parties)
             {
-                var issued = BattleEquipmentTracker.GetIssuedRoster(__instance, winnerPartyInfo.Party.Id.ToString());
+                //var issued = BattleEquipmentTracker.GetIssuedRoster(__instance, winnerPartyInfo.Party.Id.ToString());
+                var issued = BattleEquipmentTracker.GetIssuedRoster(__instance, winnerPartyInfo.Party.Id);
+
                 if (issued != null && issued.Count > 0)
                 {
-                    winnerPartyInfo.Party.ItemRoster.Add(issued);
+
+
+                    // Если это игрок - возвращаем вещи на СКЛАД
+                    if (winnerPartyInfo.Party == PartyBase.MainParty && MilitaryDepotBehavior.DepotParty != null)
+                    {
+                        MilitaryDepotBehavior.DepotParty.ItemRoster.Add(issued);
+                    }
+                    else
+
+                    {
+                        winnerPartyInfo.Party.ItemRoster.Add(issued);
+                    }
                 }
             }
 
@@ -49,7 +62,10 @@ namespace RpgMod1.BattleLootSystem
             foreach (var loserPartyInfo in loserSide.Parties)
             {
                 // Забираем элитку из трекера
-                var issuedToLoser = BattleEquipmentTracker.GetIssuedRoster(__instance, loserPartyInfo.Party.Id.ToString());
+                // var issuedToLoser = BattleEquipmentTracker.GetIssuedRoster(__instance, loserPartyInfo.Party.Id.ToString());
+
+                var issuedToLoser = BattleEquipmentTracker.GetIssuedRoster(__instance, loserPartyInfo.Party.Id);
+                
                 if (issuedToLoser != null) totalLootContainer.Add(issuedToLoser);
 
                 // Забираем всё из инвентаря (коровы, зерно, шмотки)

@@ -75,19 +75,19 @@ namespace RpgMod1
                         {
                             finalEquip[s] = best;
 
-                            // 1. УДАЛЯЕМ из симуляции (чтобы не выдать этот же предмет второму солдату)
-                            //  simRoster.AddToCounts(best, -1); двойное удаление поэтому коментируем
+                            
 
-                            // 2. КРИТИЧЕСКИ ВАЖНО: УДАЛЯЕМ из реального инвентаря (чтобы не было дубля при луте)
+                            //  КРИТИЧЕСКИ ВАЖНО: УДАЛЯЕМ из реального инвентаря (чтобы не было дубля при луте)
                             inventory.AddToCounts(best, -1);
 
-                            // 3. РЕГИСТРИРУЕМ В ТРЕКЕРЕ (только один раз)
+                            //  РЕГИСТРИРУЕМ В ТРЕКЕРЕ (только один раз)
                             // Используем активное событие карты
                             var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
                             if (activeEvent != null)
                             {
-                                // Используем Id.ToString(), так как ваш патч лута ищет именно по нему
-                                BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Id.ToString(), best.Item, 1);
+                                // ИСПОЛЬЗУЕМ party.Party.Id - это вернет "player_party" или строковый ID бандитов
+                                // BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Id.ToString(), best.Item, 1);
+                                BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Party.Id, best.Item, 1);
                             }
                         }
                         else
