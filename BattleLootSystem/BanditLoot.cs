@@ -8,19 +8,19 @@ using TaleWorlds.CampaignSystem.Party.PartyComponents;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
-using Helpers; // Для PartyBaseHelper
+using Helpers; 
 
 namespace RpgMod1.BattleLootSystem
 {
-    // Этот класс будет хранить логику и предотвращать повторное добавление лута
     public class BanditLootBehavior : CampaignBehaviorBase
     {
-        // Список ID отрядов, которые уже получили лут, чтобы не добавлять его дважды
         private static HashSet<string> _processedParties = new HashSet<string>();
 
         public override void RegisterEvents()
         {
-            // Очищаем список при загрузке игры
+            // 1. Вход для обычных бандитов (срабатывает при создании)
+            CampaignEvents.MobilePartyCreated.AddNonSerializedListener(this, TryAddLoot);
+            // Очистка при загрузке
             CampaignEvents.OnGameLoadedEvent.AddNonSerializedListener(this, (OnGameLoadedDelegate));
         }
 
@@ -31,47 +31,62 @@ namespace RpgMod1.BattleLootSystem
 
         public override void SyncData(IDataStore dataStore) { }
 
-        // Метод для проверки и начисления лута
         public static void TryAddLoot(MobileParty party)
         {
             if (party == null || party.StringId == null) return;
+            
+            // Если отряд уже обработан — выходим
             if (_processedParties.Contains(party.StringId)) return;
 
-            // Проверки на тип отряда
-            bool isDeserter = party.StringId.ToLower().Contains("deserter");
-            bool isBandit = party.IsBandit || isDeserter;
-
-            if (!isBandit) return;
-            if (party.IsMainParty || party.IsLordParty) return;
-            if (party.StringId.Contains("military_depot_party")) return;
-
-            // Если ростер все еще пуст - выходим (попробуем в следующий раз)
+            // Если в отряде еще нет людей (как у дезертиров в момент Created) — выходим, 
+            // их подхватит патч SortRoster позже
             if (party.MemberRoster == null || party.MemberRoster.Count == 0) return;
 
-            float lootChance = isDeserter ? 0.3f : 0.3f; // Базовый шанс
+            string id = party.StringId.ToLower();
             string cultureId = party.Party?.Culture?.StringId?.ToLower() ?? "";
 
-            // Элитные бандиты (Морские налетчики и т.д.)
-            if (cultureId.Contains("sea_raiders") || party.StringId.ToLower().Contains("sea_raiders"))
-                lootChance = 0.6f;
+            // Определение категорий
+            bool isDeserter = id.Contains("deserter") || cultureId.Contains("deserter");
+            bool isPatrol = party.PartyComponent is PatrolPartyComponent;
+            // Морские налетчики часто имеют культуру "nord"
+            bool isEliteBandit = id.Contains("sea_raiders") || cultureId.Contains("sea_raiders") || 
+                               id.Contains("pirate") || cultureId.Contains("nord");
+            
+            bool isNormalBandit = party.IsBandit || isEliteBandit;
 
+            // Фильтр: только бандиты, дезертиры или патрули
+            if (!isNormalBandit && !isDeserter && !isPatrol) return;
+            
+            if (party.IsMainParty || party.IsLordParty || id.Contains("military_depot_party")) return;
+
+            // Шансы
+            float lootChance = 0.3f;
+            if (isEliteBandit || isPatrol)
+            {
+                lootChance = 0.6f;
+            }
+
+            // Добавляем в список обработанных ДО начисления, чтобы избежать рекурсии
             _processedParties.Add(party.StringId);
+            
             AddPriorityLoot(party, lootChance);
         }
 
         private static void AddPriorityLoot(MobileParty party, float chance)
         {
             int totalTroops = party.MemberRoster.TotalManCount;
-            int totalSlots = (int)(totalTroops * chance);
-            if (MBRandom.RandomFloat < (totalTroops * chance - totalSlots)) totalSlots++;
-
+            float rawLootCount = totalTroops * chance;
+            int totalSlots = (int)rawLootCount;
+            
+            if (MBRandom.RandomFloat < (rawLootCount - totalSlots)) totalSlots++;
             if (totalSlots <= 0) return;
 
-            // Сортировка по Тиру (от 6 до 2)
             var highTierTroops = party.MemberRoster.GetTroopRoster()
                 .Where(t => t.Character != null && !t.Character.IsHero && t.Character.Tier > 1)
                 .OrderByDescending(t => t.Character.Tier)
                 .ToList();
+
+            if (highTierTroops.Count == 0) return;
 
             int remainingSlots = totalSlots;
             foreach (var element in highTierTroops)
@@ -97,27 +112,27 @@ namespace RpgMod1.BattleLootSystem
                 ItemObject item = equipment[(EquipmentIndex)i].Item;
                 if (item != null)
                 {
-                    if (item.WeaponComponent != null || item.ArmorComponent != null || item.ItemType == ItemObject.ItemTypeEnum.HorseHarness)
+                    bool isWeapon = item.WeaponComponent != null;
+                    bool isArmor = item.ArmorComponent != null;
+                    bool isHarness = item.ItemType == ItemObject.ItemTypeEnum.HorseHarness;
+                    bool isNotHorse = item.ItemType != ItemObject.ItemTypeEnum.Horse;
+
+                    if (isNotHorse && (isWeapon || isArmor || isHarness))
                     {
-                        if (item.ItemType != ItemObject.ItemTypeEnum.Horse)
-                        {
-                            party.ItemRoster.AddToCounts(item, count);
-                        }
+                        party.ItemRoster.AddToCounts(item, count);
                     }
                 }
             }
         }
     }
 
-    // Патч на SortRoster — это самый надежный способ поймать Дезертиров
-    // так как он вызывается сразу ПОСЛЕ заполнения их отряда войсками
     [HarmonyPatch(typeof(PartyBaseHelper), "SortRoster")]
     public class BanditLootSpawnPatch
     {
         [HarmonyPostfix]
         public static void Postfix(MobileParty mobileParty)
         {
-            // Вызываем логику проверки и начисления
+            // Этот патч подхватит дезертиров и те отряды, которые не прошли через MobilePartyCreated с воинами
             BanditLootBehavior.TryAddLoot(mobileParty);
         }
     }
