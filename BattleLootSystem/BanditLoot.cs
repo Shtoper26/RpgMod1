@@ -1,105 +1,124 @@
-﻿using HarmonyLib;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using HarmonyLib;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Party.PartyComponents;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
-using System;
+using Helpers; // Для PartyBaseHelper
 
 namespace RpgMod1.BattleLootSystem
 {
-    [HarmonyPatch(typeof(MobileParty), "CreateParty")]
-    public class BanditLootSpawnPatch
+    // Этот класс будет хранить логику и предотвращать повторное добавление лута
+    public class BanditLootBehavior : CampaignBehaviorBase
     {
-        [HarmonyPostfix]
-        public static void Postfix(MobileParty __result)
+        // Список ID отрядов, которые уже получили лут, чтобы не добавлять его дважды
+        private static HashSet<string> _processedParties = new HashSet<string>();
+
+        public override void RegisterEvents()
         {
-            // 1. Сначала базовые проверки на null
-            if (__result == null) return;
+            // Очищаем список при загрузке игры
+            CampaignEvents.OnGameLoadedEvent.AddNonSerializedListener(this, (OnGameLoadedDelegate));
+        }
 
-            // 2. ИГНОРИРУЕМ СКЛАД (Самая важная строка против краша)
-            // Если компонента нет — это технический отряд (как твой склад), его не трогаем.
-            if (__result.PartyComponent == null) return;
+        private void OnGameLoadedDelegate(CampaignGameStarter starter)
+        {
+            _processedParties.Clear();
+        }
 
-            // Игнорируем по ID (на всякий случай)
-            if (__result.StringId != null && __result.StringId.Contains("military_depot_party")) return;
+        public override void SyncData(IDataStore dataStore) { }
 
-            // 3. Теперь все остальные проверки БЕЗОПАСНЫ
-            if (__result.MemberRoster == null || __result.IsMainParty || __result.IsLordParty) return;
+        // Метод для проверки и начисления лута
+        public static void TryAddLoot(MobileParty party)
+        {
+            if (party == null || party.StringId == null) return;
+            if (_processedParties.Contains(party.StringId)) return;
 
-            float lootChance = 0f;
-            string id = __result.StringId?.ToLower() ?? "";
-            // Получаем культуру через Party (безопасный способ)
-            
-            string cultureId = __result.Party?.Culture?.StringId?.ToLower() ?? "";
+            // Проверки на тип отряда
+            bool isDeserter = party.StringId.ToLower().Contains("deserter");
+            bool isBandit = party.IsBandit || isDeserter;
 
-            // 60% для элиты и патрулей
-            bool isElite = id.Contains("sea_raiders") || cultureId.Contains("sea_raiders") || id.Contains("pirate");
-            bool isPatrol = __result.PartyComponent is PatrolPartyComponent;
+            if (!isBandit) return;
+            if (party.IsMainParty || party.IsLordParty) return;
+            if (party.StringId.Contains("military_depot_party")) return;
 
-            // 30% для обычных бандитов и дезертиров
-            bool isBandit = __result.IsBandit || id.Contains("deserter") || cultureId.Contains("deserter");
+            // Если ростер все еще пуст - выходим (попробуем в следующий раз)
+            if (party.MemberRoster == null || party.MemberRoster.Count == 0) return;
 
-            if (isElite || isPatrol)
-            {
+            float lootChance = isDeserter ? 0.3f : 0.3f; // Базовый шанс
+            string cultureId = party.Party?.Culture?.StringId?.ToLower() ?? "";
+
+            // Элитные бандиты (Морские налетчики и т.д.)
+            if (cultureId.Contains("sea_raiders") || party.StringId.ToLower().Contains("sea_raiders"))
                 lootChance = 0.6f;
-            }
-            else if (isBandit)
-            {
-                lootChance = 0.3f;
-            }
 
-            if (lootChance > 0)
+            _processedParties.Add(party.StringId);
+            AddPriorityLoot(party, lootChance);
+        }
+
+        private static void AddPriorityLoot(MobileParty party, float chance)
+        {
+            int totalTroops = party.MemberRoster.TotalManCount;
+            int totalSlots = (int)(totalTroops * chance);
+            if (MBRandom.RandomFloat < (totalTroops * chance - totalSlots)) totalSlots++;
+
+            if (totalSlots <= 0) return;
+
+            // Сортировка по Тиру (от 6 до 2)
+            var highTierTroops = party.MemberRoster.GetTroopRoster()
+                .Where(t => t.Character != null && !t.Character.IsHero && t.Character.Tier > 1)
+                .OrderByDescending(t => t.Character.Tier)
+                .ToList();
+
+            int remainingSlots = totalSlots;
+            foreach (var element in highTierTroops)
             {
-                AddMassiveTemplateLoot(__result, lootChance);
+                if (remainingSlots <= 0) break;
+                int countToGive = Math.Min(element.Number, remainingSlots);
+                
+                if (countToGive > 0)
+                {
+                    AddTemplateItems(party, element.Character, countToGive);
+                    remainingSlots -= countToGive;
+                }
             }
         }
 
-        private static void AddMassiveTemplateLoot(MobileParty party, float chance)
+        private static void AddTemplateItems(MobileParty party, CharacterObject character, int count)
         {
-            if (party.MemberRoster.Count == 0 || party.ItemRoster == null) return;
+            Equipment equipment = character.FirstBattleEquipment;
+            if (equipment == null) return;
 
-            for (int i = 0; i < party.MemberRoster.Count; i++)
+            for (int i = 0; i < 12; i++)
             {
-                var element = party.MemberRoster.GetElementCopyAtIndex(i);
-                CharacterObject character = element.Character;
-
-                if (character == null || character.IsHero) continue;
-
-                int troopCount = element.Number;
-                float exactCount = troopCount * chance;
-                int luckyTroops = (int)exactCount;
-                if (MBRandom.RandomFloat < (exactCount - luckyTroops)) luckyTroops++;
-
-                if (luckyTroops <= 0) continue;
-
-                Equipment equipment = character.FirstBattleEquipment;
-                if (equipment == null) continue;
-
-                for (int slot = 0; slot < 12; slot++)
+                ItemObject item = equipment[(EquipmentIndex)i].Item;
+                if (item != null)
                 {
-                    EquipmentElement eqElement = equipment[(EquipmentIndex)slot];
-                    ItemObject item = eqElement.Item;
-
-                    if (item != null)
+                    if (item.WeaponComponent != null || item.ArmorComponent != null || item.ItemType == ItemObject.ItemTypeEnum.HorseHarness)
                     {
-                        // 1. Проверяем, является ли предмет живой лошадью
-                        bool isLivingHorse = item.ItemType == ItemObject.ItemTypeEnum.Horse;
-                        
-                        // 2. Проверяем, является ли предмет оружием или броней (включая конскую броню)
-                        bool isWeapon = item.WeaponComponent != null;
-                        bool isArmor = item.ArmorComponent != null;
-                        bool isHorseHarness = item.ItemType == ItemObject.ItemTypeEnum.HorseHarness;
-
-                        // Условие: Добавляем только если это НЕ живая лошадь И это (Оружие ИЛИ Любая Броня)
-                        if (!isLivingHorse && (isWeapon || isArmor || isHorseHarness))
+                        if (item.ItemType != ItemObject.ItemTypeEnum.Horse)
                         {
-                            party.ItemRoster.AddToCounts(eqElement, luckyTroops);
+                            party.ItemRoster.AddToCounts(item, count);
                         }
                     }
                 }
             }
+        }
+    }
+
+    // Патч на SortRoster — это самый надежный способ поймать Дезертиров
+    // так как он вызывается сразу ПОСЛЕ заполнения их отряда войсками
+    [HarmonyPatch(typeof(PartyBaseHelper), "SortRoster")]
+    public class BanditLootSpawnPatch
+    {
+        [HarmonyPostfix]
+        public static void Postfix(MobileParty mobileParty)
+        {
+            // Вызываем логику проверки и начисления
+            BanditLootBehavior.TryAddLoot(mobileParty);
         }
     }
 }

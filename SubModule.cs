@@ -23,6 +23,7 @@ namespace RpgMod1
             {
                 starter.AddBehavior(new MilitaryDepotBehavior());
                 starter.AddBehavior(new InitialEconomyBoost());
+                starter.AddBehavior(new BattleLootSystem.BanditLootBehavior());
             }
             
             
