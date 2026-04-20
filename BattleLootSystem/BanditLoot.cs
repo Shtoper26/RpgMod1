@@ -42,6 +42,9 @@ namespace RpgMod1.BattleLootSystem
             // их подхватит патч SortRoster позже
             if (party.MemberRoster == null || party.MemberRoster.Count == 0) return;
 
+            // БЛОКИРОВКА МИРНЫХ ЖИТЕЛЕЙ: Крестьяне, караваны и лорды не получают этот лут
+            if (party.IsVillager || party.IsCaravan || party.IsLordParty || party.IsMainParty) return;
+
             string id = party.StringId.ToLower();
             string cultureId = party.Party?.Culture?.StringId?.ToLower() ?? "";
 
