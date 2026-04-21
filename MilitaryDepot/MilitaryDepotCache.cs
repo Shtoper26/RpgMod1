@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using TaleWorlds.CampaignSystem;
-using TaleWorlds.CampaignSystem.Extensions;
-using TaleWorlds.CampaignSystem.MapEvents;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
@@ -12,11 +10,9 @@ namespace RpgMod1
 {
     public static class MilitaryDepotCache
     {
-        
         private static Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>> GlobalPlan =
             new Dictionary<MobileParty, Dictionary<CharacterObject, Queue<Equipment>>>();
 
-        // Аналогично для образцов (Fallback)
         private static Dictionary<MobileParty, Dictionary<CharacterObject, Equipment>> FallbackSamples =
             new Dictionary<MobileParty, Dictionary<CharacterObject, Equipment>>();
 
@@ -26,13 +22,11 @@ namespace RpgMod1
             FallbackSamples.Clear();
         }
 
-
-
         public static void CreateBattlePlan(MobileParty party, ItemRoster inventory)
         {
             if (party?.MemberRoster == null || inventory == null) return;
 
-            // Создаем копию для симуляции, чтобы знать, что осталось на складе/в сумках
+            // Копия для симуляции, чтобы распределять вещи между солдатами
             ItemRoster simRoster = new ItemRoster(inventory);
 
             if (!GlobalPlan.ContainsKey(party))
@@ -41,85 +35,100 @@ namespace RpgMod1
             if (!FallbackSamples.ContainsKey(party))
                 FallbackSamples[party] = new Dictionary<CharacterObject, Equipment>();
 
+            // ПУНКТ 1: Сортировка от элиты к рекрутам
             var sortedTroops = party.MemberRoster.GetTroopRoster()
                 .OrderByDescending(t => t.Character.Level);
 
             foreach (var element in sortedTroops)
             {
                 CharacterObject character = element.Character;
-                if (character == null || character.IsHero || character.Tier <= 1) continue;
+                // ПУНКТ 9: Теперь обрабатываем и Тир 0/1 (убрали пропуск Tier <= 1)
+                if (character == null || character.IsHero) continue;
 
                 if (!GlobalPlan[party].ContainsKey(character))
                     GlobalPlan[party][character] = new Queue<Equipment>();
 
-                CharacterObject parentUnit = MilitaryDepotLogic.GetFirstTierCharacter(character);
+                // ПУНКТ 8-9: Получаем эталон (Тир 1 для профи, Тир 0 для новичков)
+                CharacterObject referenceUnit = MilitaryDepotLogic.GetReferenceUnit(character);
 
                 for (int n = 0; n < element.Number; n++)
                 {
                     Equipment finalEquip = new Equipment();
-                    Equipment mask = character.FirstBattleEquipment;
+                    Equipment troopEquip = character.FirstBattleEquipment;
 
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
+                        // ПУНКТ 6: Лошадей не выдаем
                         if (s == EquipmentIndex.Horse)
                         {
-                            finalEquip[s] = character.FirstBattleEquipment[s];
+                            finalEquip[s] = troopEquip[s];
                             continue;
                         }
 
-                        EquipmentElement best = (s <= EquipmentIndex.Weapon3)
-                            ? MilitaryDepotActions.ExtractBestWeaponForSlot(mask[s].Item, simRoster)
-                            : MilitaryDepotActions.ExtractBestForSlotInSim(s, simRoster);
+                        ItemObject maskItem = troopEquip[s].Item;
+                        EquipmentElement bestFromDepot = EquipmentElement.Invalid;
+                        
+                        // Помогаем алгоритму понять, есть ли уже щит в руках
+                        bool hasShield = HasShieldInWeapons(finalEquip);
 
-                        if (!best.IsEmpty)
+                        // ПУНКТ 2-5, 10-14: Подбор лучшего с учетом всех новых правил
+                        if (s <= EquipmentIndex.Weapon3)
+                            bestFromDepot = MilitaryDepotActions.ExtractBestWeaponForSlot(maskItem, simRoster, character, hasShield);
+                        else
+                            bestFromDepot = MilitaryDepotActions.ExtractBestArmorForSlot(s, simRoster, character);
+
+                        // ПУНКТ 8-9: Сравнение найденного на складе с эталоном линейки
+                        EquipmentElement finalElement = EquipmentElement.Invalid;
+                        if (referenceUnit != null)
                         {
-                            finalEquip[s] = best;
+                            ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
+                            float refPower = MilitaryDepotLogic.GetItemPower(refItem);
+                            float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item);
 
-                            
-
-                            //  КРИТИЧЕСКИ ВАЖНО: УДАЛЯЕМ из реального инвентаря (чтобы не было дубля при луте)
-                            inventory.AddToCounts(best, -1);
-
-                            //  РЕГИСТРИРУЕМ В ТРЕКЕРЕ (только один раз)
-                            // Используем активное событие карты
-                            var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
-                            if (activeEvent != null)
+                            // Если складской предмет лучше или равен эталону - выдаем его и регистрируем
+                            if (!bestFromDepot.IsEmpty && depotPower >= refPower)
                             {
-                                // ИСПОЛЬЗУЕМ party.Party.Id - это вернет "player_party" или строковый ID бандитов
-                                // BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Id.ToString(), best.Item, 1);
-                                BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Party.Id, best.Item, 1);
+                                finalElement = bestFromDepot;
+                                
+                                // УДАЛЯЕМ из реального инвентаря (склада/сумок), чтобы не было дублей при луте
+                                inventory.AddToCounts(bestFromDepot, -1);
+
+                                // РЕГИСТРИРУЕМ В ТРЕКЕРЕ для возврата после боя
+                                var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
+                                if (activeEvent != null)
+                                {
+                                    BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Party.Id, bestFromDepot.Item, 1);
+                                }
+                            }
+                            else
+                            {
+                                // Иначе берем предмет из эталонного шаблона (Тир 1 или 0)
+                                finalElement = new EquipmentElement(refItem);
                             }
                         }
-                        else
+
+                        // ПУНКТ 4: Если слот пустой и на складе/в эталоне ничего нет - оставляем как в шаблоне юнита
+                        if (finalElement.IsEmpty)
                         {
-                            // Логика отката (Fallback) к предкам
-                            if (s == EquipmentIndex.HorseHarness)
-                                finalEquip[s] = GetBaseHorseHarness(character);
-                            else if (parentUnit != null)
-                                finalEquip[s] = parentUnit.FirstBattleEquipment[s];
+                            finalElement = troopEquip[s];
                         }
 
-                        // Проверка сбруи
-                        if (s == EquipmentIndex.HorseHarness && finalEquip[s].IsEmpty && !finalEquip[EquipmentIndex.Horse].IsEmpty)
-                        {
-                            finalEquip[s] = character.FirstBattleEquipment[s];
-                        }
+                        finalEquip[s] = finalElement;
                     }
 
+                    // Добавляем готовый комплект в очередь для миссии
                     GlobalPlan[party][character].Enqueue(finalEquip);
+
                     if (!FallbackSamples[party].ContainsKey(character))
                         FallbackSamples[party][character] = finalEquip;
                 }
             }
         }
 
-
-        // ОБНОВЛЕННЫЙ МЕТОД ВЫДАЧИ: теперь нам нужно знать, чей это юнит
         public static Equipment GetPredefinedEquipment(MobileParty party, CharacterObject character)
         {
-            if (party == null || character == null || character.IsHero || character.Tier <= 1) return null;
+            if (party == null || character == null || character.IsHero) return null;
 
-            // 1. Ищем планы конкретно этого отряда
             if (GlobalPlan.TryGetValue(party, out var partyPlans))
             {
                 if (partyPlans.TryGetValue(character, out var queue) && queue.Count > 0)
@@ -127,7 +136,6 @@ namespace RpgMod1
                     return queue.Dequeue();
                 }
 
-                // 2. Если очередь пуста, берем образец этого отряда
                 if (FallbackSamples.TryGetValue(party, out var partySamples))
                 {
                     if (partySamples.TryGetValue(character, out var sample))
@@ -135,40 +143,27 @@ namespace RpgMod1
                 }
             }
 
-            // 3. Крайний случай (рекрут)
-            CharacterObject parent = MilitaryDepotLogic.GetFirstTierCharacter(character);
-            return parent?.FirstBattleEquipment;
+            // ПУНКТ 8-9: Если плана нет, возвращаем экипировку эталона
+            CharacterObject reference = MilitaryDepotLogic.GetReferenceUnit(character);
+            return reference?.FirstBattleEquipment;
         }
+
+        private static bool HasShieldInWeapons(Equipment equip)
+        {
+            for (int i = 0; i < 4; i++)
+                if (equip[i].Item != null && equip[i].Item.ItemType == ItemObject.ItemTypeEnum.Shield) return true;
+            return false;
+        }
+
         public static EquipmentElement GetBaseHorseHarness(CharacterObject character)
         {
-            CharacterObject current = character;
-            // Поднимаемся вверх по дереву апгрейдов (к предкам)
-            while (current != null)
+            // Используем логику отката к Тиру 1 для поиска базовой сбруи
+            CharacterObject reference = MilitaryDepotLogic.GetReferenceUnit(character);
+            if (reference != null && reference.FirstBattleEquipment[EquipmentIndex.HorseHarness].Item != null)
             {
-                // Проверяем, есть ли у этого предка в шаблоне лошадь
-                if (current.FirstBattleEquipment != null &&
-                    current.FirstBattleEquipment[EquipmentIndex.Horse].Item != null)
-                {
-                    // Возвращаем сбрую этого самого слабого кавалериста в ветке
-                    return current.FirstBattleEquipment[EquipmentIndex.HorseHarness];
-                }
-
-                // Если предков больше нет (дошли до рекрута), выходим
-                if (current.UpgradeTargets == null || current.UpgradeTargets.Length == 0) break;
-
-                // В Bannerlord сложнее идти "вниз" к рекруту, поэтому проще 
-                // использовать уже готовую логику твоего мода по поиску Parent, 
-                // но с проверкой на наличие слота Horse.
-
-                // Для примера используем твою логику поиска базового юнита, 
-                // но с условием: stop if has horse.
-                break;
+                return reference.FirstBattleEquipment[EquipmentIndex.HorseHarness];
             }
             return EquipmentElement.Invalid;
         }
-
-
     }
-
-
 }

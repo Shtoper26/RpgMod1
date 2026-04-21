@@ -10,50 +10,42 @@ namespace RpgMod1
     {
         public static float GetItemPower(ItemObject item)
         {
-            if (item == null) return 0f;
-            if (item.ArmorComponent != null) return item.ArmorComponent.HeadArmor + item.ArmorComponent.BodyArmor + item.ArmorComponent.LegArmor + item.ArmorComponent.ArmArmor;
-            if (item.PrimaryWeapon != null)
+            if (item == null) return -1f;
+            if (item.ArmorComponent != null) 
+                return item.ArmorComponent.HeadArmor + item.ArmorComponent.BodyArmor + 
+                       item.ArmorComponent.LegArmor + item.ArmorComponent.ArmArmor;
+            
+            if (item.WeaponComponent != null)
             {
-                float d = Math.Max(item.PrimaryWeapon.ThrustDamage, item.PrimaryWeapon.SwingDamage);
+                var weapon = item.WeaponComponent.PrimaryWeapon;
+                float d = Math.Max(weapon.ThrustDamage, weapon.SwingDamage);
+                if (item.ItemType == ItemObject.ItemTypeEnum.Shield) return weapon.MaxDataValue * 0.1f;
                 return (item.ItemType == ItemObject.ItemTypeEnum.Thrown) ? d * 1.5f : d;
             }
             return 0f;
         }
 
-        public static bool IsCompatibleWeapon(ItemObject original, ItemObject potential)
-        {
-            if (original == null || potential == null) return false;
-            if (original.ItemType == ItemObject.ItemTypeEnum.Shield) return potential.ItemType == ItemObject.ItemTypeEnum.Shield;
-            if (original.ItemType == ItemObject.ItemTypeEnum.Bow) return potential.ItemType == ItemObject.ItemTypeEnum.Bow;
-            if (original.ItemType == ItemObject.ItemTypeEnum.Crossbow) return potential.ItemType == ItemObject.ItemTypeEnum.Crossbow;
-            // ... остальные проверки типа оружия ...
-            return original.ItemType == potential.ItemType;
-        }
-
-        public static bool IsEquipment(ItemObject item)
-        {
-            return item.ItemType == ItemObject.ItemTypeEnum.BodyArmor || item.ItemType == ItemObject.ItemTypeEnum.LegArmor ||
-                   item.ItemType == ItemObject.ItemTypeEnum.HeadArmor || item.ItemType == ItemObject.ItemTypeEnum.HandArmor ||
-                   item.ItemType == ItemObject.ItemTypeEnum.Cape || item.ItemType == ItemObject.ItemTypeEnum.Shield ||
-                   item.ItemType == ItemObject.ItemTypeEnum.OneHandedWeapon || item.ItemType == ItemObject.ItemTypeEnum.TwoHandedWeapon ||
-                   item.ItemType == ItemObject.ItemTypeEnum.Polearm || item.ItemType == ItemObject.ItemTypeEnum.Thrown ||
-                   item.ItemType == ItemObject.ItemTypeEnum.Bow || item.ItemType == ItemObject.ItemTypeEnum.Crossbow ||
-                   item.ItemType == ItemObject.ItemTypeEnum.Arrows || item.ItemType == ItemObject.ItemTypeEnum.Bolts;
-        }
-
-        public static CharacterObject GetFirstTierCharacter(CharacterObject character)
+        // НОВАЯ ЛОГИКА (Пункты 8-9):
+        public static CharacterObject GetReferenceUnit(CharacterObject character)
         {
             if (character == null) return null;
+            // Если юнит уже Тир 0 или Тир 1 - он сам себе образец
+            if (character.Tier <= 1) return character;
+
             CharacterObject current = character;
             bool foundParent = true;
-            while (foundParent)
+
+            // Идем вверх по дереву, пока не достигнем Тира 1
+            while (current.Tier > 1 && foundParent)
             {
                 foundParent = false;
                 foreach (var obj in MBObjectManager.Instance.GetObjectTypeList<CharacterObject>())
                 {
                     if (obj.UpgradeTargets != null && obj.UpgradeTargets.Contains(current))
                     {
-                        current = obj; foundParent = true; break;
+                        current = obj;
+                        foundParent = true;
+                        break;
                     }
                 }
             }
@@ -70,6 +62,7 @@ namespace RpgMod1
                 case EquipmentIndex.Leg: return item.ItemType == ItemObject.ItemTypeEnum.LegArmor;
                 case EquipmentIndex.Gloves: return item.ItemType == ItemObject.ItemTypeEnum.HandArmor;
                 case EquipmentIndex.Cape: return item.ItemType == ItemObject.ItemTypeEnum.Cape;
+                case EquipmentIndex.HorseHarness: return item.ItemType == ItemObject.ItemTypeEnum.HorseHarness;
                 default: return false;
             }
         }

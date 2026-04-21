@@ -1,9 +1,12 @@
 ﻿using Helpers;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
+using TaleWorlds.Library;
 
 namespace RpgMod1
 {
@@ -13,7 +16,6 @@ namespace RpgMod1
         {
             if (MilitaryDepotBehavior.DepotParty == null)
             {
-                // Ищем в списке всех мобильных отрядов по StringId
                 foreach (var party in MobileParty.All)
                 {
                     if (party.StringId == "military_depot_party")
@@ -25,17 +27,9 @@ namespace RpgMod1
 
                 if (MilitaryDepotBehavior.DepotParty == null)
                 {
-                    // Создаем легально с культурой игрока
-                    MilitaryDepotBehavior.DepotParty = MilitaryDepotComponent.CreateDepotParty(
-                        "military_depot_party",
-                        Hero.MainHero.Culture
-                    );
-
-                    // В 1.3.x настройки видимости и веса работают так:
+                    MilitaryDepotBehavior.DepotParty = MilitaryDepotComponent.CreateDepotParty("military_depot_party", Hero.MainHero.Culture);
                     MilitaryDepotBehavior.DepotParty.IsVisible = false;
                     MilitaryDepotBehavior.DepotParty.ActualClan = Clan.PlayerClan;
-
-                    // Чтобы отряд не создавал лагов в логике передвижения
                     MilitaryDepotBehavior.DepotParty.IsActive = true;
                 }
             }
@@ -69,120 +63,188 @@ namespace RpgMod1
             MilitaryDepotLogs.LogTransferComplete(count);
         }
 
-        
-
         public static void UpdateNeededItemsList()
         {
             MilitaryDepotBehavior.NeededItems.Clear();
+            if (MilitaryDepotBehavior.DepotParty == null) return;
+
+            // Создаем копию склада для симуляции выдачи
             ItemRoster simRoster = new ItemRoster(MilitaryDepotBehavior.DepotParty.ItemRoster);
-            var members = PartyBase.MainParty.MemberRoster;
+            
+            // ПРАВИЛО 1: Сначала выдача самым лучшим юнитам (высокий уровень/тир)
+            var sortedTroops = PartyBase.MainParty.MemberRoster.GetTroopRoster()
+                .OrderByDescending(t => t.Character.Level)
+                .ToList();
 
-            for (int i = 0; i < members.Count; i++)
+            foreach (var element in sortedTroops)
             {
-                var el = members.GetElementCopyAtIndex(i);
-                if (el.Character == null || el.Character.IsHero || el.Character.Tier <= 1) continue;
+                CharacterObject character = element.Character;
+                if (character == null || character.IsHero) continue;
 
-                // ВАЖНО: Мы используем ту же логику "отката", что и в основном моде
-                CharacterObject parentUnit = el.Character; // Для простоты поиска предка
+                // ПРАВИЛО 8-9: Находим эталон для отката (Тир 1 для профи, Тир 0 для новобранцев)
+                CharacterObject referenceUnit = MilitaryDepotLogic.GetReferenceUnit(character);
 
-                for (int n = 0; n < el.Number; n++)
+                for (int n = 0; n < element.Number; n++)
                 {
-                    Equipment mask = el.Character.FirstBattleEquipment;
+                    Equipment troopEquip = character.FirstBattleEquipment;
 
-                    // ИСПРАВЛЕНИЕ 1: Расширяем цикл до HorseHarness
+                    // Проверяем все слоты от Оружия 0 до Сбруи коня
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
-                        // ИСПРАВЛЕНИЕ 2: Пропускаем саму лошадь (как и в основном цикле)
+                        // ПРАВИЛО 6: Лошадей не выдаем
                         if (s == EquipmentIndex.Horse) continue;
 
-                        ItemObject maskItem = mask[s].Item;
+                        ItemObject maskItem = troopEquip[s].Item;
+                        EquipmentElement bestFromDepot = EquipmentElement.Invalid;
+                        
+                        // ПРАВИЛО 5б: Проверяем наличие щита у юнита
+                        bool hasShield = HasShieldInWeapons(troopEquip);
 
-                        // 1. Ищем лучшее на складе
-                        EquipmentElement bestFromDepot = (s <= EquipmentIndex.Weapon3) ?
-                            ExtractBestWeaponForSlot(maskItem, simRoster) : ExtractBestForSlotInSim(s, simRoster);
+                        // ПРАВИЛО 3-5: Подбор снаряжения
+                        if (s <= EquipmentIndex.Weapon3)
+                        {
+                            bestFromDepot = ExtractBestWeaponForSlot(maskItem, simRoster, character, hasShield);
+                        }
+                        else
+                        {
+                            // ПРАВИЛО 4: Выдача брони в пустые слоты шаблона
+                            bestFromDepot = ExtractBestArmorForSlot(s, simRoster, character);
+                        }
 
+                        // ПРАВИЛО 8-9: Сравнение с эталоном линейки (Тир 1 или Тир 0)
+                        if (referenceUnit != null)
+                        {
+                            ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
+                            if (refItem != null)
+                            {
+                                float refPower = MilitaryDepotLogic.GetItemPower(refItem);
+                                float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item);
+
+                                // Если предмет эталона лучше того, что нашли на складе - берем эталон
+                                if (refPower > depotPower)
+                                {
+                                    MilitaryDepotBehavior.NeededItems.Add(refItem);
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // ПРАВИЛО 2: Если на складе нашлось что-то лучше, добавляем в "Нужное"
                         if (!bestFromDepot.IsEmpty)
                         {
                             MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
-                        }
-                        else if (parentUnit != null)
-                        {
-                            // 2. Если на складе пусто, добавляем в "нужное" предмет предка
-                            if (s == EquipmentIndex.HorseHarness)
-                            {
-                                // Используем наш безопасный метод для седла
-                                EquipmentElement baseHarness = MilitaryDepotCache.GetBaseHorseHarness(parentUnit);
-                                if (!baseHarness.IsEmpty) MilitaryDepotBehavior.NeededItems.Add(baseHarness.Item);
-                            }
-                            else
-                            {
-                                ItemObject parentItem = parentUnit.FirstBattleEquipment[s].Item;
-                                if (parentItem != null) MilitaryDepotBehavior.NeededItems.Add(parentItem);
-                            }
                         }
                     }
                 }
             }
         }
 
-
-        public static void PrepareTempLoot() { if (MilitaryDepotBehavior.DepotParty != null) MilitaryDepotBehavior.TempBattleLoot = new ItemRoster(MilitaryDepotBehavior.DepotParty.ItemRoster); }
-        public static EquipmentElement ExtractBestForSlot(EquipmentIndex slot) { return ExtractBestForSlotInSim(slot, MilitaryDepotBehavior.TempBattleLoot); }
-
-        public static EquipmentElement ExtractBestForSlotInSim(EquipmentIndex slot, ItemRoster roster)
+        private static bool HasShieldInWeapons(Equipment equip)
         {
-            if (roster == null) return EquipmentElement.Invalid;
-            int bIdx = -1; float bPow = -1f;
+            for (int i = 0; i < 4; i++)
+                if (equip[i].Item != null && equip[i].Item.ItemType == ItemObject.ItemTypeEnum.Shield) return true;
+            return false;
+        }
+
+        public static EquipmentElement ExtractBestArmorForSlot(EquipmentIndex slot, ItemRoster roster, CharacterObject character)
+        {
+            int bestIdx = -1; float maxPower = -1f;
             for (int i = 0; i < roster.Count; i++)
             {
                 ItemObject item = roster[i].EquipmentElement.Item;
                 if (MilitaryDepotLogic.IsItemForArmorSlot(item, slot))
                 {
                     float p = MilitaryDepotLogic.GetItemPower(item);
-                    if (p > bPow) { bPow = p; bIdx = i; }
+                    if (p > maxPower) { maxPower = p; bestIdx = i; }
                 }
             }
-            if (bIdx != -1)
+            if (bestIdx != -1)
             {
-                EquipmentElement best = roster[bIdx].EquipmentElement;
-                roster.AddToCounts(best, -1);
-                return best;
+                EquipmentElement res = roster[bestIdx].EquipmentElement;
+                roster.AddToCounts(res, -1);
+                return res;
             }
             return EquipmentElement.Invalid;
         }
 
-        public static EquipmentElement ExtractBestWeaponForSlot(ItemObject maskItem, ItemRoster roster)
+        public static EquipmentElement ExtractBestWeaponForSlot(ItemObject maskItem, ItemRoster roster, CharacterObject character, bool hasShield)
         {
-            // Если на складе пусто — сразу уходим на откат к "отцу"
-            if (roster == null || roster.IsEmpty()) return EquipmentElement.Invalid;
-
-            int bestIdx = -1;
-            float bestPower = -1f; // Любой предмет лучше пустоты
+            int bestIdx = -1; float maxPower = -1f;
 
             for (int i = 0; i < roster.Count; i++)
             {
                 ItemObject repoItem = roster[i].EquipmentElement.Item;
+                if (repoItem == null || repoItem.PrimaryWeapon == null) continue;
 
-                // ЖЕСТКАЯ МАСКА: Тип предмета на складе должен СТРОГО совпадать с типом в шаблоне тира N
-                // (Например: Одноручное к Одноручному, Щит к Щиту)
+                // ПРАВИЛО 10: Косы/мотыги не выдаем никому выше Тира 0
+                if (character.Tier > 0 && IsFarmTool(repoItem)) continue;
+
+                // ПРАВИЛО 11-14: Навыки, Кавалерия и Конные лучники
+                if (!IsWeaponAllowedForUnit(repoItem, character)) continue;
+
+                bool isMatch = false;
+
+                // ПРАВИЛО 3 и 5а: Соответствие типу из шаблона (Лук к луку и т.д.)
                 if (maskItem != null && repoItem.ItemType == maskItem.ItemType)
                 {
+                    isMatch = true;
+                }
+                // ПРАВИЛО 5а: Если нет точного типа, но совпадает навык (одноручное к одноручному)
+                else if (maskItem != null && maskItem.PrimaryWeapon != null && 
+                         maskItem.PrimaryWeapon.RelevantSkill == repoItem.PrimaryWeapon.RelevantSkill)
+                {
+                    isMatch = true;
+                }
+                // ПРАВИЛО 5б: Выдача щита в пустой слот
+                else if (maskItem == null && !hasShield && repoItem.ItemType == ItemObject.ItemTypeEnum.Shield)
+                {
+                    isMatch = true;
+                }
+
+                if (isMatch)
+                {
                     float p = MilitaryDepotLogic.GetItemPower(repoItem);
-                    if (p > bestPower)
-                    {
-                        bestPower = p;
-                        bestIdx = i;
-                    }
+                    if (p > maxPower) { maxPower = p; bestIdx = i; }
                 }
             }
 
             if (bestIdx != -1)
             {
-                EquipmentElement bestFound = roster[bestIdx].EquipmentElement;
-                roster.AddToCounts(bestFound, -1);
-                return bestFound;
+                EquipmentElement res = roster[bestIdx].EquipmentElement;
+                roster.AddToCounts(res, -1);
+                return res;
             }
             return EquipmentElement.Invalid;
+        }
+
+        private static bool IsWeaponAllowedForUnit(ItemObject item, CharacterObject character)
+        {
+            var weapon = item.PrimaryWeapon;
+
+            // ПРАВИЛО 11: Навык владения луком
+            if (item.ItemType == ItemObject.ItemTypeEnum.Bow && character.GetSkillValue(DefaultSkills.Bow) < item.Difficulty)
+                return false;
+
+            if (character.IsMounted)
+            {
+                string usage = weapon.ItemUsage?.ToLower() ?? "";
+                
+                // ПРАВИЛО 14: Лук верхом (отсекаем Longbow)
+                if (item.ItemType == ItemObject.ItemTypeEnum.Bow && usage.Contains("longbow")) return false;
+
+                // ПРАВИЛО 13: Оружие, не предназначенное для коня (Пики)
+                if (usage.Contains("pike") || usage.Contains("bracing")) return false;
+
+                // ПРАВИЛО 12: Древковое для кавалерии ОБЯЗАТЕЛЬНО должно иметь колющий урон
+                if (item.ItemType == ItemObject.ItemTypeEnum.Polearm && weapon.ThrustDamage <= 0) return false;
+            }
+            return true;
+        }
+
+        private static bool IsFarmTool(ItemObject item)
+        {
+            string id = item.StringId?.ToLower() ?? "";
+            return id.Contains("scythe") || id.Contains("hoe") || id.Contains("sickle");
         }
     }
 }
