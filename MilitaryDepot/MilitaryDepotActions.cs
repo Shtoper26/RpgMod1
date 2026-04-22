@@ -12,7 +12,7 @@ namespace RpgMod1
 {
     public static class MilitaryDepotActions
     {
-        // ... (Методы OpenDepot и TransferUselessItems без изменений) ...
+        // ... (OpenDepot и TransferUselessItems без изменений) ...
         public static void OpenDepot()
         {
             if (MilitaryDepotBehavior.DepotParty == null)
@@ -58,126 +58,128 @@ namespace RpgMod1
             if (MilitaryDepotBehavior.DepotParty == null) return;
 
             ItemRoster simRoster = new ItemRoster(MilitaryDepotBehavior.DepotParty.ItemRoster);
-            
-            // ПРАВИЛО 1: Строгая сортировка по уровню (Тиру) для всех юнитов сразу
-            var allTroops = PartyBase.MainParty.MemberRoster.GetTroopRoster()
-                .OrderByDescending(t => t.Character.Level)
-                .ToList();
+            var sortedTroops = PartyBase.MainParty.MemberRoster.GetTroopRoster()
+                .OrderByDescending(t => t.Character.Level).ToList();
 
-            // Считаем, сколько всадников (всех тиров) в отряде - это наш резерв для копий
-            int remainingCavalryNeeds = allTroops.Where(t => t.Character.IsMounted).Sum(t => t.Number);
+            int cavalryReserve = sortedTroops.Where(t => t.Character.IsMounted).Sum(t => t.Number);
 
-            foreach (var element in allTroops)
+            foreach (var element in sortedTroops)
             {
                 CharacterObject character = element.Character;
                 if (character == null || character.IsHero) continue;
 
-                CharacterObject referenceUnit = MilitaryDepotLogic.GetReferenceUnit(character);
+                CharacterObject refUnit = MilitaryDepotLogic.GetReferenceUnit(character);
 
                 for (int n = 0; n < element.Number; n++)
                 {
-                    Equipment troopEquip = character.FirstBattleEquipment;
-
+                    Equipment mask = character.FirstBattleEquipment;
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
-                        if (s == EquipmentIndex.Horse) continue; // ПУНКТ 6
+                        if (s == EquipmentIndex.Horse) continue;
+                        ItemObject maskItem = mask[s].Item;
+                        EquipmentElement best = (s <= EquipmentIndex.Weapon3)
+                            ? ExtractBestWeaponForSlot(maskItem, simRoster, character, mask, cavalryReserve)
+                            : ExtractBestArmorForSlot(s, simRoster, character);
 
-                        ItemObject maskItem = troopEquip[s].Item;
-                        EquipmentElement best = EquipmentElement.Invalid;
-
-                        if (s <= EquipmentIndex.Weapon3)
-                            // ПЕРЕДАЕМ число оставшихся всадников для резервирования копий
-                            best = ExtractBestWeaponForSlot(maskItem, simRoster, character, troopEquip, remainingCavalryNeeds);
-                        else
-                            best = ExtractBestArmorForSlot(s, simRoster, character);
-
-                        if (referenceUnit != null)
+                        if (refUnit != null)
                         {
-                            ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
+                            ItemObject refItem = refUnit.FirstBattleEquipment[s].Item;
                             if (refItem != null)
                             {
-                                float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
-                                float depotPower = best.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(best.Item, s);
-
-                                if (refPower > depotPower)
-                                {
-                                    MilitaryDepotBehavior.NeededItems.Add(refItem);
-                                    continue;
-                                }
+                                float refP = MilitaryDepotLogic.GetItemPower(refItem, s);
+                                float depP = best.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(best.Item, s);
+                                if (refP > depP) { MilitaryDepotBehavior.NeededItems.Add(refItem); continue; }
                             }
                         }
                         if (!best.IsEmpty) MilitaryDepotBehavior.NeededItems.Add(best.Item);
                     }
-                    
-                    // После обработки одного юнита, если он был всадником, уменьшаем счетчик нужд кавалерии
-                    if (character.IsMounted) remainingCavalryNeeds--;
+                    if (character.IsMounted) cavalryReserve--;
                 }
             }
         }
 
         public static EquipmentElement ExtractBestArmorForSlot(EquipmentIndex slot, ItemRoster roster, CharacterObject character)
         {
-            int bestIdx = -1; float maxPower = -1f;
+            int bIdx = -1; float maxP = -1f;
             for (int i = 0; i < roster.Count; i++)
             {
                 ItemObject item = roster[i].EquipmentElement.Item;
                 if (MilitaryDepotLogic.IsItemForArmorSlot(item, slot))
                 {
                     float p = MilitaryDepotLogic.GetItemPower(item, slot);
-                    if (p > maxPower) { maxPower = p; bestIdx = i; }
+                    if (p > maxP) { maxP = p; bIdx = i; }
                 }
             }
-            if (bestIdx != -1)
-            {
-                EquipmentElement res = roster[bestIdx].EquipmentElement;
-                roster.AddToCounts(res, -1);
-                return res;
-            }
+            if (bIdx != -1) { EquipmentElement res = roster[bIdx].EquipmentElement; roster.AddToCounts(res, -1); return res; }
             return EquipmentElement.Invalid;
         }
 
         public static EquipmentElement ExtractBestWeaponForSlot(ItemObject maskItem, ItemRoster roster, CharacterObject character, Equipment currentEquip, int cavalryReserve)
+{
+    int bestIdx = -1;
+    int bestMatchLevel = 0; 
+    float maxPower = -1f;
+
+    for (int i = 0; i < roster.Count; i++)
+    {
+        ItemObject repoItem = roster[i].EquipmentElement.Item;
+        if (repoItem == null || repoItem.PrimaryWeapon == null) continue;
+
+        // ПРАВИЛО 10, 11-14: Базовые фильтры
+        if (character.Tier > 0 && IsFarmTool(repoItem)) continue;
+        if (!IsWeaponAllowedForUnit(repoItem, character)) continue;
+        if (IsDuplicateUniqueItem(repoItem, currentEquip)) continue;
+
+        // РЕЗЕРВИРОВАНИЕ ДЛЯ КАВАЛЕРИИ
+        if (!character.IsMounted && IsCavalryPolearm(repoItem) && roster[i].Amount <= cavalryReserve) continue;
+
+        int currentMatchLevel = 0;
+
+        // ЕСЛИ СЛОТ В ШАБЛОНЕ НЕ ПУСТОЙ
+        if (maskItem != null && maskItem.PrimaryWeapon != null)
         {
-            int bestIdx = -1; float maxPower = -1f;
-
-            for (int i = 0; i < roster.Count; i++)
+            // Уровень 3: Идеальное совпадение класса (Топор к Топору, Копье к Копью)
+            if (repoItem.PrimaryWeapon.WeaponClass == maskItem.PrimaryWeapon.WeaponClass)
+                currentMatchLevel = 3;
+            
+            // Уровень 2: Совпадение навыка (Меч вместо Топора) - только для обычного оружия
+            else if (maskItem.PrimaryWeapon.RelevantSkill == repoItem.PrimaryWeapon.RelevantSkill)
             {
-                ItemObject repoItem = roster[i].EquipmentElement.Item;
-                if (repoItem == null || repoItem.PrimaryWeapon == null) continue;
-
-                if (character.Tier > 0 && IsFarmTool(repoItem)) continue;
-                if (!IsWeaponAllowedForUnit(repoItem, character)) continue;
-                if (IsDuplicateUniqueItem(repoItem, currentEquip)) continue;
-
-                // --- ЛОГИКА РЕЗЕРВИРОВАНИЯ КОПИЙ ДЛЯ КАВАЛЕРИИ ---
-                if (!character.IsMounted && IsCavalryPolearm(repoItem))
-                {
-                    // Если количество таких копий на складе меньше или равно количеству всадников, 
-                    // которые еще не получили снаряжение - пехотинец ПУСКАЕТ ИХ МИМО (Power = 0)
-                    if (roster[i].Amount <= cavalryReserve) continue;
-                }
-
-                bool isMatch = false;
-                if (maskItem != null && repoItem.ItemType == maskItem.ItemType) isMatch = true;
-                else if (maskItem != null && maskItem.PrimaryWeapon != null && 
-                         maskItem.PrimaryWeapon.RelevantSkill == repoItem.PrimaryWeapon.RelevantSkill) isMatch = true;
-                else if (maskItem == null && repoItem.ItemType == ItemObject.ItemTypeEnum.Shield && !HasItemType(currentEquip, ItemObject.ItemTypeEnum.Shield)) isMatch = true;
-
-                if (isMatch)
-                {
-                    float p = MilitaryDepotLogic.GetItemPower(repoItem, EquipmentIndex.Weapon0);
-                    if (p > maxPower) { maxPower = p; bestIdx = i; }
-                }
+                bool isGeneral = maskItem.ItemType == ItemObject.ItemTypeEnum.OneHandedWeapon || 
+                                maskItem.ItemType == ItemObject.ItemTypeEnum.TwoHandedWeapon;
+                if (isGeneral) currentMatchLevel = 2;
             }
-
-            if (bestIdx != -1)
-            {
-                EquipmentElement res = roster[bestIdx].EquipmentElement;
-                roster.AddToCounts(res, -1);
-                return res;
-            }
-            return EquipmentElement.Invalid;
         }
+        // ЕСЛИ СЛОТ ПУСТОЙ (Пункт 5б)
+        else if (repoItem.ItemType == ItemObject.ItemTypeEnum.Shield && !HasItemType(currentEquip, ItemObject.ItemTypeEnum.Shield))
+        {
+            currentMatchLevel = 1;
+        }
+
+        if (currentMatchLevel > 0)
+        {
+            float p = MilitaryDepotLogic.GetItemPower(repoItem, EquipmentIndex.Weapon0);
+            if (currentMatchLevel > bestMatchLevel)
+            {
+                bestMatchLevel = currentMatchLevel;
+                maxPower = p;
+                bestIdx = i;
+            }
+            else if (currentMatchLevel == bestMatchLevel && p > maxPower)
+            {
+                maxPower = p;
+                bestIdx = i;
+            }
+        }
+    }
+
+    if (bestIdx != -1) { 
+        EquipmentElement res = roster[bestIdx].EquipmentElement; 
+        roster.AddToCounts(res, -1); 
+        return res; 
+    }
+    return EquipmentElement.Invalid;
+}
 
         public static bool IsDuplicateUniqueItem(ItemObject item, Equipment currentEquip)
         {
@@ -199,20 +201,13 @@ namespace RpgMod1
         {
             var weapon = item.PrimaryWeapon;
             if (item.ItemType == ItemObject.ItemTypeEnum.Bow && character.GetSkillValue(DefaultSkills.Bow) < item.Difficulty) return false;
-
             if (character.IsMounted)
             {
-                if (item.ItemType == ItemObject.ItemTypeEnum.Bow && IsLongbow(item)) return false;
+                if (item.ItemType == ItemObject.ItemTypeEnum.Bow && (weapon.ItemUsage?.ToLower().Contains("longbow") ?? false)) return false;
                 if (!IsUsableMounted(item)) return false;
                 if (item.ItemType == ItemObject.ItemTypeEnum.Polearm && weapon.ThrustDamage <= 0) return false;
             }
             return true;
-        }
-
-        private static bool IsCavalryPolearm(ItemObject item)
-        {
-            if (item.ItemType != ItemObject.ItemTypeEnum.Polearm) return false;
-            return item.PrimaryWeapon.ThrustDamage > 0 && IsUsableMounted(item);
         }
 
         private static bool IsUsableMounted(ItemObject item)
@@ -221,9 +216,9 @@ namespace RpgMod1
             return !usage.Contains("longbow") && !usage.Contains("pike") && !usage.Contains("bracing");
         }
 
-        private static bool IsLongbow(ItemObject item)
+        private static bool IsCavalryPolearm(ItemObject item)
         {
-            return (item.PrimaryWeapon?.ItemUsage?.ToLower() ?? "").Contains("longbow");
+            return item.ItemType == ItemObject.ItemTypeEnum.Polearm && item.PrimaryWeapon.ThrustDamage > 0 && IsUsableMounted(item);
         }
 
         private static bool IsFarmTool(ItemObject item)

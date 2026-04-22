@@ -61,54 +61,47 @@ namespace RpgMod1
                     finalEquip[EquipmentIndex.Horse] = troopEquip[EquipmentIndex.Horse];
 
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
-                    {
-                        if (s == EquipmentIndex.Horse) continue;
+{
+    if (s == EquipmentIndex.Horse) continue;
 
-                        ItemObject maskItem = troopEquip[s].Item;
-                        EquipmentElement bestFromDepot = EquipmentElement.Invalid;
+    ItemObject maskItem = troopEquip[s].Item;
+    EquipmentElement bestFromDepot = (s <= EquipmentIndex.Weapon3)
+        ? MilitaryDepotActions.ExtractBestWeaponForSlot(maskItem, simRoster, character, finalEquip, remainingCavalryNeeds)
+        : MilitaryDepotActions.ExtractBestArmorForSlot(s, simRoster, character);
 
-                        // ИСПРАВЛЕНИЕ ОШИБКИ: Передаем remainingCavalryNeeds в метод
-                        if (s <= EquipmentIndex.Weapon3)
-                            bestFromDepot = MilitaryDepotActions.ExtractBestWeaponForSlot(maskItem, simRoster, character, finalEquip, remainingCavalryNeeds);
-                        else
-                            bestFromDepot = MilitaryDepotActions.ExtractBestArmorForSlot(s, simRoster, character);
+    EquipmentElement finalElement = EquipmentElement.Invalid;
+    
+    if (referenceUnit != null)
+    {
+        ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
+        float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
+        float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
 
-                        EquipmentElement finalElement = EquipmentElement.Invalid;
-                        if (referenceUnit != null)
-                        {
-                            ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
-                            
-                            // Учитываем профильную броню для конкретного слота
-                            float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
-                            float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
+        // Если со склада пришло что-то уровня 2 или 3, и оно мощнее эталона
+        if (!bestFromDepot.IsEmpty && depotPower >= refPower)
+        {
+            finalElement = bestFromDepot;
+            inventory.AddToCounts(bestFromDepot, -1);
+            var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
+            if (activeEvent != null) BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Party.Id, bestFromDepot.Item, 1);
+        }
+        else
+        {
+            // Откат к эталону (Тир 1 или 0)
+            if (refItem != null && !MilitaryDepotActions.IsDuplicateUniqueItem(refItem, finalEquip))
+                finalElement = new EquipmentElement(refItem);
+        }
+    }
 
-                            if (!bestFromDepot.IsEmpty && depotPower >= refPower)
-                            {
-                                finalElement = bestFromDepot;
-                                
-                                // Удаляем из РЕАЛЬНОГО инвентаря только если берем вещь
-                                inventory.AddToCounts(bestFromDepot, -1);
-                                
-                                var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
-                                if (activeEvent != null)
-                                {
-                                    BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Party.Id, bestFromDepot.Item, 1);
-                                }
-                            }
-                            else if (refItem != null && !MilitaryDepotActions.IsDuplicateUniqueItem(refItem, finalEquip))
-                            {
-                                finalElement = new EquipmentElement(refItem);
-                            }
-                        }
+    // Запасной вариант из родного шаблона
+    if (finalElement.IsEmpty && troopEquip[s].Item != null)
+    {
+        if (!MilitaryDepotActions.IsDuplicateUniqueItem(troopEquip[s].Item, finalEquip))
+            finalElement = troopEquip[s];
+    }
 
-                        if (finalElement.IsEmpty && troopEquip[s].Item != null)
-                        {
-                            if (!MilitaryDepotActions.IsDuplicateUniqueItem(troopEquip[s].Item, finalEquip))
-                                finalElement = troopEquip[s];
-                        }
-
-                        finalEquip[s] = finalElement;
-                    }
+    finalEquip[s] = finalElement;
+}
 
                     GlobalPlan[party][character].Enqueue(finalEquip);
                     if (!FallbackSamples[party].ContainsKey(character))
