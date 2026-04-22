@@ -8,12 +8,28 @@ namespace RpgMod1
 {
     public static class MilitaryDepotLogic
     {
-        public static float GetItemPower(ItemObject item)
+        // Теперь метод принимает слот, для которого мы оцениваем предмет
+        public static float GetItemPower(ItemObject item, EquipmentIndex slot = EquipmentIndex.None)
         {
             if (item == null) return -1f;
-            if (item.ArmorComponent != null) 
-                return item.ArmorComponent.HeadArmor + item.ArmorComponent.BodyArmor + 
-                       item.ArmorComponent.LegArmor + item.ArmorComponent.ArmArmor;
+
+            if (item.ArmorComponent != null)
+            {
+                // ПУНКТ 2: Оцениваем только профильный параметр для конкретного слота
+                switch (slot)
+                {
+                    case EquipmentIndex.Head: return item.ArmorComponent.HeadArmor;
+                    case EquipmentIndex.Body: return item.ArmorComponent.BodyArmor; // Учитываем ТОЛЬКО Броню тела
+                    case EquipmentIndex.Leg: return item.ArmorComponent.LegArmor;
+                    case EquipmentIndex.Gloves: return item.ArmorComponent.ArmArmor;
+                    case EquipmentIndex.Cape: return item.ArmorComponent.BodyArmor;
+                    case EquipmentIndex.HorseHarness: return item.ArmorComponent.BodyArmor;
+                    default:
+                        // Если слот не указан, суммируем всё (для общего веса/ценности)
+                        return item.ArmorComponent.HeadArmor + item.ArmorComponent.BodyArmor + 
+                               item.ArmorComponent.LegArmor + item.ArmorComponent.ArmArmor;
+                }
+            }
             
             if (item.WeaponComponent != null)
             {
@@ -25,17 +41,13 @@ namespace RpgMod1
             return 0f;
         }
 
-        // НОВАЯ ЛОГИКА (Пункты 8-9):
+        // ... остальные методы (GetReferenceUnit, IsItemForArmorSlot) остаются без изменений
         public static CharacterObject GetReferenceUnit(CharacterObject character)
         {
             if (character == null) return null;
-            // Если юнит уже Тир 0 или Тир 1 - он сам себе образец
             if (character.Tier <= 1) return character;
-
             CharacterObject current = character;
             bool foundParent = true;
-
-            // Идем вверх по дереву, пока не достигнем Тира 1
             while (current.Tier > 1 && foundParent)
             {
                 foundParent = false;
@@ -43,9 +55,7 @@ namespace RpgMod1
                 {
                     if (obj.UpgradeTargets != null && obj.UpgradeTargets.Contains(current))
                     {
-                        current = obj;
-                        foundParent = true;
-                        break;
+                        current = obj; foundParent = true; break;
                     }
                 }
             }

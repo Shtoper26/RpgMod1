@@ -70,6 +70,7 @@ namespace RpgMod1
 
             ItemRoster simRoster = new ItemRoster(MilitaryDepotBehavior.DepotParty.ItemRoster);
             
+            // ПРАВИЛО 1: Сортировка от элиты к рекрутам
             var sortedTroops = PartyBase.MainParty.MemberRoster.GetTroopRoster()
                 .OrderByDescending(t => t.Character.Level)
                 .ToList();
@@ -79,6 +80,7 @@ namespace RpgMod1
                 CharacterObject character = element.Character;
                 if (character == null || character.IsHero) continue;
 
+                // ПРАВИЛО 8-9: Получаем эталон (Тир 1 или Тир 0)
                 CharacterObject referenceUnit = MilitaryDepotLogic.GetReferenceUnit(character);
 
                 for (int n = 0; n < element.Number; n++)
@@ -87,7 +89,7 @@ namespace RpgMod1
 
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
-                        if (s == EquipmentIndex.Horse) continue;
+                        if (s == EquipmentIndex.Horse) continue; // ПРАВИЛО 6
 
                         ItemObject maskItem = troopEquip[s].Item;
                         EquipmentElement bestFromDepot = EquipmentElement.Invalid;
@@ -97,13 +99,15 @@ namespace RpgMod1
                         else
                             bestFromDepot = ExtractBestArmorForSlot(s, simRoster, character);
 
+                        // ПРАВИЛО 8-9: Сравнение со складским предметом
                         if (referenceUnit != null)
                         {
                             ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
                             if (refItem != null)
                             {
-                                float refPower = MilitaryDepotLogic.GetItemPower(refItem);
-                                float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item);
+                                // Учитываем только профильную броню для конкретного слота (BodyArmor для тела и т.д.)
+                                float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
+                                float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
 
                                 if (refPower > depotPower)
                                 {
@@ -127,7 +131,8 @@ namespace RpgMod1
                 ItemObject item = roster[i].EquipmentElement.Item;
                 if (MilitaryDepotLogic.IsItemForArmorSlot(item, slot))
                 {
-                    float p = MilitaryDepotLogic.GetItemPower(item);
+                    // ПУНКТ: Учитываем только профильный параметр защиты для этого слота
+                    float p = MilitaryDepotLogic.GetItemPower(item, slot);
                     if (p > maxPower) { maxPower = p; bestIdx = i; }
                 }
             }
@@ -149,14 +154,18 @@ namespace RpgMod1
                 ItemObject repoItem = roster[i].EquipmentElement.Item;
                 if (repoItem == null || repoItem.PrimaryWeapon == null) continue;
 
+                // ПРАВИЛО 10: Косы/мотыги не выдаем Тиру > 0
                 if (character.Tier > 0 && IsFarmTool(repoItem)) continue;
+
+                // ПРАВИЛО 11-14: Навыки и всадники
                 if (!IsWeaponAllowedForUnit(repoItem, character)) continue;
 
-                // Проверка на дублирование щитов/луков
+                // ЗАЩИТА ОТ ДУБЛИКАТОВ (Щиты, Луки)
                 if (IsDuplicateUniqueItem(repoItem, currentEquip)) continue;
 
                 bool isMatch = false;
 
+                // ПРАВИЛО 3, 5а: По типу из шаблона или по навыку (RelevantSkill)
                 if (maskItem != null && repoItem.ItemType == maskItem.ItemType)
                 {
                     isMatch = true;
@@ -166,6 +175,7 @@ namespace RpgMod1
                 {
                     isMatch = true;
                 }
+                // ПРАВИЛО 5б: Выдача щита в пустой слот
                 else if (maskItem == null && repoItem.ItemType == ItemObject.ItemTypeEnum.Shield && !HasItemType(currentEquip, ItemObject.ItemTypeEnum.Shield))
                 {
                     isMatch = true;
@@ -173,7 +183,7 @@ namespace RpgMod1
 
                 if (isMatch)
                 {
-                    float p = MilitaryDepotLogic.GetItemPower(repoItem);
+                    float p = MilitaryDepotLogic.GetItemPower(repoItem, EquipmentIndex.Weapon0);
                     if (p > maxPower) { maxPower = p; bestIdx = i; }
                 }
             }
@@ -187,6 +197,7 @@ namespace RpgMod1
             return EquipmentElement.Invalid;
         }
 
+        // Публичный метод для проверки дублирования (Щиты, Луки, Арбалеты)
         public static bool IsDuplicateUniqueItem(ItemObject item, Equipment currentEquip)
         {
             var type = item.ItemType;
@@ -212,14 +223,19 @@ namespace RpgMod1
         private static bool IsWeaponAllowedForUnit(ItemObject item, CharacterObject character)
         {
             var weapon = item.PrimaryWeapon;
+            
+            // ПРАВИЛО 11: Проверка навыка лука
             if (item.ItemType == ItemObject.ItemTypeEnum.Bow && character.GetSkillValue(DefaultSkills.Bow) < item.Difficulty)
                 return false;
 
             if (character.IsMounted)
             {
                 string usage = weapon.ItemUsage?.ToLower() ?? "";
+                // ПРАВИЛО 14: Длинные луки запрещены всадникам
                 if (item.ItemType == ItemObject.ItemTypeEnum.Bow && usage.Contains("longbow")) return false;
+                // ПРАВИЛО 13: Пики запрещены всадникам
                 if (usage.Contains("pike") || usage.Contains("bracing")) return false;
+                // ПРАВИЛО 12: Древковое всадника должно иметь колющий урон
                 if (item.ItemType == ItemObject.ItemTypeEnum.Polearm && weapon.ThrustDamage <= 0) return false;
             }
             return true;
