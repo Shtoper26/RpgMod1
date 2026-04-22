@@ -34,8 +34,13 @@ namespace RpgMod1
             if (!FallbackSamples.ContainsKey(party))
                 FallbackSamples[party] = new Dictionary<CharacterObject, Equipment>();
 
+            // ПРАВИЛО 1: Сортировка по уровню
             var sortedTroops = party.MemberRoster.GetTroopRoster()
-                .OrderByDescending(t => t.Character.Level);
+                .OrderByDescending(t => t.Character.Level)
+                .ToList();
+
+            // --- НОВОЕ: Считаем общее количество всадников для резервирования копий ---
+            int remainingCavalryNeeds = sortedTroops.Where(t => t.Character.IsMounted).Sum(t => t.Number);
 
             foreach (var element in sortedTroops)
             {
@@ -52,6 +57,7 @@ namespace RpgMod1
                     Equipment finalEquip = new Equipment();
                     Equipment troopEquip = character.FirstBattleEquipment;
 
+                    // ПУНКТ 6: Переносим лошадь из шаблона
                     finalEquip[EquipmentIndex.Horse] = troopEquip[EquipmentIndex.Horse];
 
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
@@ -61,9 +67,9 @@ namespace RpgMod1
                         ItemObject maskItem = troopEquip[s].Item;
                         EquipmentElement bestFromDepot = EquipmentElement.Invalid;
 
-                        // Передаем собираемый набор finalEquip для контроля дублей
+                        // ИСПРАВЛЕНИЕ ОШИБКИ: Передаем remainingCavalryNeeds в метод
                         if (s <= EquipmentIndex.Weapon3)
-                            bestFromDepot = MilitaryDepotActions.ExtractBestWeaponForSlot(maskItem, simRoster, character, finalEquip);
+                            bestFromDepot = MilitaryDepotActions.ExtractBestWeaponForSlot(maskItem, simRoster, character, finalEquip, remainingCavalryNeeds);
                         else
                             bestFromDepot = MilitaryDepotActions.ExtractBestArmorForSlot(s, simRoster, character);
 
@@ -71,12 +77,16 @@ namespace RpgMod1
                         if (referenceUnit != null)
                         {
                             ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
-                            float refPower = MilitaryDepotLogic.GetItemPower(refItem);
-                            float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item);
+                            
+                            // Учитываем профильную броню для конкретного слота
+                            float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
+                            float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
 
                             if (!bestFromDepot.IsEmpty && depotPower >= refPower)
                             {
                                 finalElement = bestFromDepot;
+                                
+                                // Удаляем из РЕАЛЬНОГО инвентаря только если берем вещь
                                 inventory.AddToCounts(bestFromDepot, -1);
                                 
                                 var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
@@ -103,6 +113,9 @@ namespace RpgMod1
                     GlobalPlan[party][character].Enqueue(finalEquip);
                     if (!FallbackSamples[party].ContainsKey(character))
                         FallbackSamples[party][character] = finalEquip;
+
+                    // Уменьшаем счетчик нужд кавалерии после обработки всадника
+                    if (character.IsMounted) remainingCavalryNeeds--;
                 }
             }
         }
