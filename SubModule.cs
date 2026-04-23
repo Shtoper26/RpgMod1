@@ -45,7 +45,7 @@ namespace RpgMod1
         protected override void OnApplicationTick(float dt)
         {
             if (Campaign.Current == null) return;
-            if (Input.IsKeyPressed(InputKey.K)) MilitaryDepotActions.OpenDepot();
+            if (Input.IsKeyPressed(InputKey.U)) MilitaryDepotActions.OpenDepot();
             if (Input.IsKeyPressed(InputKey.O)) MilitaryDepotActions.TransferUselessItems();
         }
     }

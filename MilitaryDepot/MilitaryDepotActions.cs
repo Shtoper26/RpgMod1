@@ -34,10 +34,15 @@ namespace RpgMod1
         public static void TransferUselessItems()
         {
             if (MilitaryDepotBehavior.DepotParty == null || PartyBase.MainParty == null) return;
+            
+            // 1. Обновляем список того, что РЕАЛЬНО нужно армии
             UpdateNeededItemsList();
+            
             ItemRoster depot = MilitaryDepotBehavior.DepotParty.ItemRoster;
             ItemRoster player = PartyBase.MainParty.ItemRoster;
             int count = 0;
+
+            // 2. Перемещаем всё, чего нет в списке NeededItems
             for (int i = depot.Count - 1; i >= 0; i--)
             {
                 ItemRosterElement el = depot[i];
@@ -72,15 +77,18 @@ namespace RpgMod1
                 for (int n = 0; n < element.Number; n++)
                 {
                     Equipment mask = character.FirstBattleEquipment;
+                    
+                    // Симуляция вариативности (Пункт 15): учитываем все возможные шаблоны при поиске нужного
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
                         if (s == EquipmentIndex.Horse) continue;
+
                         ItemObject maskItem = mask[s].Item;
                         EquipmentElement bestFromDepot = (s <= EquipmentIndex.Weapon3)
                             ? ExtractBestWeaponForSlot(maskItem, simRoster, character, mask, cavalryReserve)
                             : ExtractBestArmorForSlot(s, simRoster, character);
 
-                        // ПРОВЕРЯЕМ ВСЕ ВАРИАНТЫ ШАБЛОНОВ ЭТАЛОНА
+                        // Проверяем по всем шаблонам эталона (чтобы не удалить вариативность)
                         if (referenceUnit != null && referenceUnit.BattleEquipments != null)
                         {
                             foreach (var refTemplate in referenceUnit.BattleEquipments)
@@ -91,15 +99,20 @@ namespace RpgMod1
                                     float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
                                     float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
 
-                                    // Если предмет из любого шаблона эталона лучше того, что на складе - помечаем его как нужный
-                                    if (refPower > depotPower)
+                                    // Если складской предмет ЛУЧШЕ хотя бы одного шаблона — он нужен
+                                    if (!bestFromDepot.IsEmpty && depotPower >= refPower)
                                     {
-                                        MilitaryDepotBehavior.NeededItems.Add(refItem);
+                                        MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
                                     }
                                 }
                             }
                         }
-                        if (!bestFromDepot.IsEmpty) MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
+                        
+                        // Если предмет со склада в принципе был найден и он лучше того, что в маске
+                        if (!bestFromDepot.IsEmpty)
+                        {
+                            MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
+                        }
                     }
                     if (character.IsMounted) cavalryReserve--;
                 }
@@ -135,7 +148,11 @@ namespace RpgMod1
 
                 if (character.Tier > 0 && IsFarmTool(repoItem)) continue;
                 if (!IsWeaponAllowedForUnit(repoItem, character)) continue;
-                if (IsDuplicateUniqueItem(repoItem, currentEquip)) continue;
+
+                // --- ИСПРАВЛЕННАЯ ЛОГИКА ДУБЛИКАТОВ ---
+                // Если мы заменяем предмет того же типа (например, щит на щит), это НЕ дубликат
+                bool isReplacement = maskItem != null && repoItem.ItemType == maskItem.ItemType;
+                if (!isReplacement && IsDuplicateUniqueItem(repoItem, currentEquip)) continue;
 
                 if (!character.IsMounted && IsCavalryPolearm(repoItem) && roster[i].Amount <= cavalryReserve) continue;
 
@@ -186,7 +203,9 @@ namespace RpgMod1
             var type = item.ItemType;
             if (type == ItemObject.ItemTypeEnum.Shield || type == ItemObject.ItemTypeEnum.Bow || 
                 type == ItemObject.ItemTypeEnum.Crossbow || type == ItemObject.ItemTypeEnum.Thrown)
+            {
                 return HasItemType(currentEquip, type);
+            }
             return false;
         }
 
