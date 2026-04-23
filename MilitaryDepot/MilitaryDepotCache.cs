@@ -5,6 +5,7 @@ using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.Core;
+using TaleWorlds.Library;
 
 namespace RpgMod1
 {
@@ -34,12 +35,10 @@ namespace RpgMod1
             if (!FallbackSamples.ContainsKey(party))
                 FallbackSamples[party] = new Dictionary<CharacterObject, Equipment>();
 
-            // ПРАВИЛО 1: Сортировка по уровню
             var sortedTroops = party.MemberRoster.GetTroopRoster()
                 .OrderByDescending(t => t.Character.Level)
                 .ToList();
 
-            // --- НОВОЕ: Считаем общее количество всадников для резервирования копий ---
             int remainingCavalryNeeds = sortedTroops.Where(t => t.Character.IsMounted).Sum(t => t.Number);
 
             foreach (var element in sortedTroops)
@@ -57,57 +56,82 @@ namespace RpgMod1
                     Equipment finalEquip = new Equipment();
                     Equipment troopEquip = character.FirstBattleEquipment;
 
-                    // ПУНКТ 6: Переносим лошадь из шаблона
+                    // --- ИСПРАВЛЕНИЕ: ПРАВИЛЬНЫЙ ВЫБОР РАНДОМНОГО ШАБЛОНА ---
+                    Equipment selectedRefTemplate = null;
+                    if (referenceUnit != null)
+                    {
+                        // Преобразуем в список, чтобы избежать ошибки "группа методов"
+                        var allTemplates = referenceUnit.BattleEquipments.ToList();
+                        if (allTemplates.Count > 0)
+                        {
+                            selectedRefTemplate = allTemplates[MBRandom.RandomInt(allTemplates.Count)];
+                        }
+                    }
+
+                    // Пункт 6: Коня всегда берем из родного шаблона
                     finalEquip[EquipmentIndex.Horse] = troopEquip[EquipmentIndex.Horse];
 
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
-{
-    if (s == EquipmentIndex.Horse) continue;
+                    {
+                        if (s == EquipmentIndex.Horse) continue;
 
-    ItemObject maskItem = troopEquip[s].Item;
-    EquipmentElement bestFromDepot = (s <= EquipmentIndex.Weapon3)
-        ? MilitaryDepotActions.ExtractBestWeaponForSlot(maskItem, simRoster, character, finalEquip, remainingCavalryNeeds)
-        : MilitaryDepotActions.ExtractBestArmorForSlot(s, simRoster, character);
+                        ItemObject maskItem = troopEquip[s].Item;
+                        
+                        // Подбор лучшего со склада (с учетом резерва для кавалерии и защиты от дублей)
+                        EquipmentElement bestFromDepot = (s <= EquipmentIndex.Weapon3)
+                            ? MilitaryDepotActions.ExtractBestWeaponForSlot(maskItem, simRoster, character, finalEquip, remainingCavalryNeeds)
+                            : MilitaryDepotActions.ExtractBestArmorForSlot(s, simRoster, character);
 
-    EquipmentElement finalElement = EquipmentElement.Invalid;
-    
-    if (referenceUnit != null)
-    {
-        ItemObject refItem = referenceUnit.FirstBattleEquipment[s].Item;
-        float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
-        float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
+                        EquipmentElement finalElement = EquipmentElement.Invalid;
+                        
+                        // Если есть рандомный шаблон эталона
+                        if (selectedRefTemplate != null)
+                        {
+                            ItemObject refItem = selectedRefTemplate[s].Item;
+                            
+                            // Сравниваем "силу" складского предмета и предмета из рандомного шаблона
+                            float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
+                            float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
 
-        // Если со склада пришло что-то уровня 2 или 3, и оно мощнее эталона
-        if (!bestFromDepot.IsEmpty && depotPower >= refPower)
-        {
-            finalElement = bestFromDepot;
-            inventory.AddToCounts(bestFromDepot, -1);
-            var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
-            if (activeEvent != null) BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Party.Id, bestFromDepot.Item, 1);
-        }
-        else
-        {
-            // Откат к эталону (Тир 1 или 0)
-            if (refItem != null && !MilitaryDepotActions.IsDuplicateUniqueItem(refItem, finalEquip))
-                finalElement = new EquipmentElement(refItem);
-        }
-    }
+                            if (!bestFromDepot.IsEmpty && depotPower >= refPower)
+                            {
+                                finalElement = bestFromDepot;
+                                
+                                // УДАЛЯЕМ из инвентаря, чтобы не было дублей
+                                inventory.AddToCounts(bestFromDepot, -1);
+                                
+                                var activeEvent = party.MapEvent ?? TaleWorlds.CampaignSystem.MapEvents.MapEvent.PlayerMapEvent;
+                                if (activeEvent != null)
+                                {
+                                    BattleEquipmentTracker.RegisterIssuedEquipment(activeEvent, party.Party.Id, bestFromDepot.Item, 1);
+                                }
+                            }
+                            else if (refItem != null)
+                            {
+                                // Если на складе нет или оно хуже - берем из выбранного шаблона (проверяя на дубли щитов/луков)
+                                if (!MilitaryDepotActions.IsDuplicateUniqueItem(refItem, finalEquip))
+                                {
+                                    finalElement = new EquipmentElement(refItem);
+                                }
+                            }
+                        }
 
-    // Запасной вариант из родного шаблона
-    if (finalElement.IsEmpty && troopEquip[s].Item != null)
-    {
-        if (!MilitaryDepotActions.IsDuplicateUniqueItem(troopEquip[s].Item, finalEquip))
-            finalElement = troopEquip[s];
-    }
+                        // Если всё еще пусто (например, в шаблоне эталона в этом слоте ничего нет)
+                        if (finalElement.IsEmpty && troopEquip[s].Item != null)
+                        {
+                            if (!MilitaryDepotActions.IsDuplicateUniqueItem(troopEquip[s].Item, finalEquip))
+                            {
+                                finalElement = troopEquip[s];
+                            }
+                        }
 
-    finalEquip[s] = finalElement;
-}
+                        finalEquip[s] = finalElement;
+                    }
 
                     GlobalPlan[party][character].Enqueue(finalEquip);
                     if (!FallbackSamples[party].ContainsKey(character))
                         FallbackSamples[party][character] = finalEquip;
 
-                    // Уменьшаем счетчик нужд кавалерии после обработки всадника
                     if (character.IsMounted) remainingCavalryNeeds--;
                 }
             }
