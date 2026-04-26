@@ -15,6 +15,40 @@ using TaleWorlds.Library;
 
 namespace RpgMod1
 {
+    [HarmonyPatch(typeof(SPInventoryVM), "OnDonationXpChange")]
+    public static class MilitaryDepotXpLabelPatch
+    {
+        // Используем Prefix, чтобы полностью остановить выполнение метода
+        [HarmonyPrefix]
+        public static bool Prefix(SPInventoryVM __instance)
+        {
+            // Если это наш склад, мы просто обнуляем всё и не даем методу работать
+            if (IsOurDepot(__instance))
+            {
+                // Устанавливаем свойства через рефлексию (так как они могут быть private)
+                var type = typeof(SPInventoryVM);
+
+                // 1. Опыт в 0
+                type.GetProperty("ExperienceLbl")?.SetValue(__instance, "");
+
+                // 2. Флаг "Есть ли опыт" в false (надпись погаснет)
+                type.GetProperty("HasGainedExperience")?.SetValue(__instance, false);
+
+                // 3. Флаг превышения лимита в false
+                type.GetProperty("IsDonationXpGainExceedsMax")?.SetValue(__instance, false);
+
+                return false; // Останавливаем оригинальный метод. Текст не обновится.
+            }
+            return true; // Для обычного инвентаря всё работает как обычно
+        }
+
+        private static bool IsOurDepot(SPInventoryVM vm)
+        {
+            var logic = typeof(SPInventoryVM).GetField("_inventoryLogic", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(vm) as InventoryLogic;
+            return logic != null && MilitaryDepotBehavior.DepotParty != null &&
+                   logic.OtherParty == MilitaryDepotBehavior.DepotParty.Party;
+        }
+    }
     // --- ПАТЧ ДЛЯ БЛОКИРОВКИ ПЕРКОВ (Гарантия обещания и Дающая рука) ---
     [HarmonyPatch]
     public static class MilitaryDepotXpBlocker
