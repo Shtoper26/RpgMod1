@@ -1,16 +1,17 @@
-﻿using Helpers;
+﻿using HarmonyLib;
+using Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using TaleWorlds.CampaignSystem;
-using TaleWorlds.CampaignSystem.Party;
-using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.CampaignSystem.GameState;
 using TaleWorlds.CampaignSystem.Inventory;
+using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem.Roster;
+using TaleWorlds.CampaignSystem.ViewModelCollection.Inventory;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
-using HarmonyLib;
-using System.Reflection;
 
 namespace RpgMod1
 {
@@ -41,6 +42,58 @@ namespace RpgMod1
                 }
             }
             return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(SPInventoryVM))]
+    public static class MilitaryDepotInventoryVMPatch
+    {
+        [HarmonyPrefix]
+        [HarmonyPatch("HandleDone")]
+        public static bool PrefixHandleDone(SPInventoryVM __instance)
+        {
+            if (TryGetOurLogic(__instance, out var logic))
+            {
+                // 1. ПРИНУДИТЕЛЬНО ВЫКЛЮЧАЕМ ДОНАТ (Чтобы опыт не шел)
+                var field = typeof(InventoryLogic).GetField("<IsDiscardDonating>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                field?.SetValue(logic, false);
+
+                // 2. ЗАКРЫВАЕМ ЭКРАН (Без окна предупреждения)
+                InventoryScreenHelper.CloseScreen(false);
+
+                // 3. СОХРАНЯЕМ ЗАМКИ/СОРТИРОВКУ
+                typeof(SPInventoryVM).GetMethod("SaveItemLockStates", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(__instance, null);
+                typeof(SPInventoryVM).GetMethod("SaveItemSortStates", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(__instance, null);
+
+                return false; // Оригинал с окном "str_discarding_items" не запустится
+            }
+            return true;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch("ExecuteCompleteTranstactions")]
+        public static bool PrefixComplete(SPInventoryVM __instance)
+        {
+            if (TryGetOurLogic(__instance, out _))
+            {
+                // Очистка пустых слотов
+                typeof(SPInventoryVM).GetMethod("ExecuteRemoveZeroCounts", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.Invoke(__instance, null);
+
+                // Переход в наш же пропатченный HandleDone (который закроет всё без окон и опыта)
+                typeof(SPInventoryVM).GetMethod("HandleDone", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(__instance, null);
+
+                return false; // Оригинал с окном "str_leaving_loot_behind" не запустится
+            }
+            return true;
+        }
+
+        // Вспомогательный метод: берет логику и проверяет, наш ли это склад
+        private static bool TryGetOurLogic(SPInventoryVM vm, out InventoryLogic logic)
+        {
+            logic = typeof(SPInventoryVM).GetField("_inventoryLogic", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(vm) as InventoryLogic;
+
+            return logic != null && MilitaryDepotBehavior.DepotParty != null &&
+                   logic.OtherParty == MilitaryDepotBehavior.DepotParty.Party;
         }
     }
 
