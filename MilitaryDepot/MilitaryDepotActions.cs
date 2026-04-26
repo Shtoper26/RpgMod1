@@ -5,11 +5,45 @@ using System.Linq;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.CampaignSystem.Roster;
+using TaleWorlds.CampaignSystem.GameState;
+using TaleWorlds.CampaignSystem.Inventory;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
+using HarmonyLib;
+using System.Reflection;
 
 namespace RpgMod1
 {
+    // --- ПАТЧ ДЛЯ БЛОКИРОВКИ ПЕРКОВ (Гарантия обещания и Дающая рука) ---
+    [HarmonyPatch]
+    public static class MilitaryDepotXpBlocker
+    {
+        // Используем ручной поиск метода, так как класс поведения в игре помечен как internal
+        static MethodBase TargetMethod()
+        {
+            return AccessTools.Method("TaleWorlds.CampaignSystem.CampaignBehaviors.DiscardItemsCampaignBehavior:OnItemsDiscardedByPlayer");
+        }
+
+        [HarmonyPrefix]
+        public static bool Prefix()
+        {
+            // Проверяем текущее состояние игры. Если открыт инвентарь:
+            if (Game.Current.GameStateManager.ActiveState is InventoryState inventoryState)
+            {
+                // Если "Другой стороной" (правой частью инвентаря) является наш склад
+                if (inventoryState.InventoryLogic != null && 
+                    MilitaryDepotBehavior.DepotParty != null &&
+                    inventoryState.InventoryLogic.OtherParty == MilitaryDepotBehavior.DepotParty.Party)
+                {
+                    // Возвращаем false, чтобы метод OnItemsDiscardedByPlayer НЕ выполнился
+                    // Таким образом, опыт за "выброшенные" (переданные на склад) вещи не начислится
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
     public static class MilitaryDepotActions
     {
         public static void OpenDepot()
@@ -28,6 +62,8 @@ namespace RpgMod1
                 }
             }
             UpdateNeededItemsList();
+            
+            // В 1.3.15 используем стандартный вызов
             InventoryScreenHelper.OpenScreenAsInventoryOf(PartyBase.MainParty, MilitaryDepotBehavior.DepotParty.Party, CharacterObject.PlayerCharacter, null, null, null);
         }
 
@@ -35,14 +71,12 @@ namespace RpgMod1
         {
             if (MilitaryDepotBehavior.DepotParty == null || PartyBase.MainParty == null) return;
             
-            // 1. Обновляем список того, что РЕАЛЬНО нужно армии
             UpdateNeededItemsList();
             
             ItemRoster depot = MilitaryDepotBehavior.DepotParty.ItemRoster;
             ItemRoster player = PartyBase.MainParty.ItemRoster;
             int count = 0;
 
-            // 2. Перемещаем всё, чего нет в списке NeededItems
             for (int i = depot.Count - 1; i >= 0; i--)
             {
                 ItemRosterElement el = depot[i];
@@ -56,6 +90,7 @@ namespace RpgMod1
             MilitaryDepotLogs.LogTransferComplete(count);
         }
 
+        // ... остальной ваш код UpdateNeededItemsList, ExtractBestArmorForSlot и т.д. без изменений ...
         public static void UpdateNeededItemsList()
         {
             MilitaryDepotBehavior.NeededItems.Clear();
@@ -78,7 +113,6 @@ namespace RpgMod1
                 {
                     Equipment mask = character.FirstBattleEquipment;
                     
-                    // Симуляция вариативности (Пункт 15): учитываем все возможные шаблоны при поиске нужного
                     for (EquipmentIndex s = EquipmentIndex.Weapon0; s <= EquipmentIndex.HorseHarness; s++)
                     {
                         if (s == EquipmentIndex.Horse) continue;
@@ -88,7 +122,6 @@ namespace RpgMod1
                             ? ExtractBestWeaponForSlot(maskItem, simRoster, character, mask, cavalryReserve)
                             : ExtractBestArmorForSlot(s, simRoster, character);
 
-                        // Проверяем по всем шаблонам эталона (чтобы не удалить вариативность)
                         if (referenceUnit != null && referenceUnit.BattleEquipments != null)
                         {
                             foreach (var refTemplate in referenceUnit.BattleEquipments)
@@ -99,7 +132,6 @@ namespace RpgMod1
                                     float refPower = MilitaryDepotLogic.GetItemPower(refItem, s);
                                     float depotPower = bestFromDepot.IsEmpty ? -1f : MilitaryDepotLogic.GetItemPower(bestFromDepot.Item, s);
 
-                                    // Если складской предмет ЛУЧШЕ хотя бы одного шаблона — он нужен
                                     if (!bestFromDepot.IsEmpty && depotPower >= refPower)
                                     {
                                         MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
@@ -108,7 +140,6 @@ namespace RpgMod1
                             }
                         }
                         
-                        // Если предмет со склада в принципе был найден и он лучше того, что в маске
                         if (!bestFromDepot.IsEmpty)
                         {
                             MilitaryDepotBehavior.NeededItems.Add(bestFromDepot.Item);
@@ -118,7 +149,9 @@ namespace RpgMod1
                 }
             }
         }
-
+        
+        // ... (ваши вспомогательные методы ExtractBestWeaponForSlot, HasItemType и др.)
+        //// ... существующий код ...
         public static EquipmentElement ExtractBestArmorForSlot(EquipmentIndex slot, ItemRoster roster, CharacterObject character)
         {
             int bestIdx = -1; float maxPower = -1f;
@@ -149,8 +182,6 @@ namespace RpgMod1
                 if (character.Tier > 0 && IsFarmTool(repoItem)) continue;
                 if (!IsWeaponAllowedForUnit(repoItem, character)) continue;
 
-                // --- ИСПРАВЛЕННАЯ ЛОГИКА ДУБЛИКАТОВ ---
-                // Если мы заменяем предмет того же типа (например, щит на щит), это НЕ дубликат
                 bool isReplacement = maskItem != null && repoItem.ItemType == maskItem.ItemType;
                 if (!isReplacement && IsDuplicateUniqueItem(repoItem, currentEquip)) continue;
 
