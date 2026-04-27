@@ -24,9 +24,11 @@ namespace RpgMod1
                 starter.AddBehavior(new MilitaryDepotBehavior());
                 starter.AddBehavior(new InitialEconomyBoost());
                 starter.AddBehavior(new BattleLootSystem.BanditLootBehavior());
+                gameStarterObject.AddModel(new RpgMod1.CapacityModels.RpgInventoryCapacityModel());
+
             }
             
-            
+
         }
 
         // Изменили protected на public
