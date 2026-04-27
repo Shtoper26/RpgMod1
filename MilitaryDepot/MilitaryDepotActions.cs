@@ -15,6 +15,27 @@ using TaleWorlds.Library;
 
 namespace RpgMod1
 {
+    [HarmonyPatch(typeof(SPInventoryVM), "RefreshValues")]
+    public static class MilitaryDepotNameUIFix
+    {
+        [HarmonyPostfix]
+        public static void Postfix(SPInventoryVM __instance)
+        {
+            // Проверяем, что открыт именно наш склад
+            var logic = typeof(SPInventoryVM).GetField("_inventoryLogic", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(__instance) as InventoryLogic;
+
+            if (logic != null && MilitaryDepotBehavior.DepotParty != null &&
+                logic.OtherParty == MilitaryDepotBehavior.DepotParty.Party)
+            {
+                // Левая сторона (в режиме лута это склад)
+                __instance.LeftInventoryOwnerName = new TaleWorlds.Localization.TextObject("{=!}Армейский обоз").ToString();
+
+                // Правая сторона (твой отряд)
+                __instance.RightInventoryOwnerName = PartyBase.MainParty.Name.ToString();
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(SPInventoryVM), "OnDonationXpChange")]
     public static class MilitaryDepotXpLabelPatch
     {
@@ -148,6 +169,26 @@ namespace RpgMod1
                     MilitaryDepotBehavior.DepotParty.IsActive = true;
                 }
             }
+            if (MilitaryDepotBehavior.DepotParty != null)
+            {
+                var textObject = new TaleWorlds.Localization.TextObject("{=!}Армейский обоз");
+
+                // 1. Пробиваем приватный сеттер CustomName в MobileParty через рефлексию
+                var customNameProp = typeof(TaleWorlds.CampaignSystem.Party.MobileParty).GetProperty("CustomName");
+                if (customNameProp != null)
+                {
+                    customNameProp.SetValue(MilitaryDepotBehavior.DepotParty, textObject);
+                }
+
+                // 2. Дополнительно меняем поле _name в самом MobileParty
+                // В MobileParty оно обычно называется именно _name (проверь в dnSpy если что)
+                var nameField = HarmonyLib.AccessTools.Field(typeof(TaleWorlds.CampaignSystem.Party.MobileParty), "_name");
+                if (nameField != null)
+                {
+                    nameField.SetValue(MilitaryDepotBehavior.DepotParty, textObject);
+                }
+            }
+
             UpdateNeededItemsList();
             
             // В 1.3.15 используем стандартный вызов
