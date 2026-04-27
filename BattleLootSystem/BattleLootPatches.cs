@@ -27,13 +27,11 @@ namespace RpgMod1.BattleLootSystem
             var loserSide = __instance.GetMapEventSide(__instance.WinningSide.GetOppositeSide());
             if (winnerSide == null || loserSide == null) return;
 
-            // Находим объект MapEventParty игрока
             MapEventParty playerBattleParty = winnerSide.Parties.FirstOrDefault(x => x.Party == PartyBase.MainParty);
 
-            // 1. Возврат своего
+            // 1. Возврат своего (Победители забирают то, что выдавали со склада)
             foreach (var winnerPartyInfo in winnerSide.Parties)
             {
-                // ИСПРАВЛЕНО: добавлено .ToString()
                 var issued = BattleEquipmentTracker.GetIssuedRoster(__instance, winnerPartyInfo.Party.Id.ToString());
                 if (issued != null && issued.Count > 0)
                 {
@@ -44,14 +42,21 @@ namespace RpgMod1.BattleLootSystem
                 }
             }
 
-            // 2. Сбор общего котла
+            // 2. Сбор общего котла трофеев
             ItemRoster totalLootContainer = new ItemRoster();
             foreach (var loserPartyInfo in loserSide.Parties)
             {
-                // ИСПРАВЛЕНО: добавлено .ToString()
-                var issuedToLoser = BattleEquipmentTracker.GetIssuedRoster(__instance, loserPartyInfo.Party.Id.ToString());
+                string loserId = loserPartyInfo.Party.Id.ToString();
+
+                // А. Забираем выданную элитку из трекера
+                var issuedToLoser = BattleEquipmentTracker.GetIssuedRoster(__instance, loserId);
                 if (issuedToLoser != null) totalLootContainer.Add(issuedToLoser);
 
+                // Б. НОВОЕ: Забираем оружие рекрутов (0-1 тир), которое было выдано по шаблону
+                var templateLoot = BattleEquipmentTracker.GetTemplateLootRoster(__instance, loserId);
+                if (templateLoot != null) totalLootContainer.Add(templateLoot);
+
+                // В. Забираем всё из инвентаря проигравших
                 if (loserPartyInfo.Party.ItemRoster != null)
                 {
                     totalLootContainer.Add(loserPartyInfo.Party.ItemRoster);
@@ -71,7 +76,6 @@ namespace RpgMod1.BattleLootSystem
 
             var sortedWinners = winnerSide.Parties.OrderByDescending(p => p.Party.NumberOfAllMembers).ToList();
 
-            // Очищаем ростер окна игрока
             playerBattleParty?.RosterToReceiveLootItems?.Clear();
 
             // 4. Распределение
@@ -83,12 +87,8 @@ namespace RpgMod1.BattleLootSystem
                 foreach (var winnerInfo in sortedWinners)
                 {
                     if (remainingAmount <= 0) break;
-
                     int amountToGive = (int)Math.Round((double)element.Amount * winnerInfo.Party.NumberOfAllMembers / totalWinnerTroops);
-                    
-                    // ИСПРАВЛЕНО: Отдаем остаток последнему в цикле, если насчитали лишнего
-                    if (winnerInfo == sortedWinners.Last() || amountToGive > remainingAmount) 
-                        amountToGive = remainingAmount;
+                    if (winnerInfo == sortedWinners.Last() || amountToGive > remainingAmount) amountToGive = remainingAmount;
 
                     if (amountToGive > 0)
                     {
@@ -101,7 +101,6 @@ namespace RpgMod1.BattleLootSystem
                     }
                 }
 
-                // ДОПОЛНИТЕЛЬНО: Если из-за округления вниз остался 1 предмет, отдаем его лидеру (первому в списке)
                 if (remainingAmount > 0)
                 {
                     var leader = sortedWinners[0];
